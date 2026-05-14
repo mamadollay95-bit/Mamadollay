@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "User Account",
+      "description": "Information about a staff or admin user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "pin": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Staff"] },
+        "email": { "type": "string", "format": "email" }
+      },
+      "required": ["id", "username", "pin", "name", "role", "email"]
+    },
+    "DailyJob": {
+      "title": "Daily Job Log",
+      "description": "A record of a housekeeping task performed by a staff member",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tanggal": { "type": "string", "format": "date" },
+        "pic": { "type": "string" },
+        "lokasi": { "type": "string" },
+        "shift": { "type": "string" },
+        "kegiatan": { "type": "string" },
+        "waktuMulai": { "type": "string" },
+        "waktuSelesai": { "type": "string" },
+        "durasi": { "type": "string" },
+        "foto": { "type": "string", "description": "Base64 encoded image or URL" },
+        "keterangan": { "type": "string" }
+      },
+      "required": ["id", "tanggal", "pic", "lokasi", "shift", "kegiatan", "waktuMulai", "waktuSelesai", "durasi"]
+    },
+    "MasterJob": {
+      "title": "Master Job Template",
+      "description": "Predefined job activity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lokasi": { "type": "string" },
+        "shiftKerja": { "type": "string" },
+        "kegiatan": { "type": "string" }
+      },
+      "required": ["id", "lokasi", "shiftKerja", "kegiatan"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "UserAccount",
+      "description": "Collection of all authorized users"
+    },
+    "dailyJobs": {
+      "schema": "DailyJob",
+      "description": "Log of completed activities"
+    },
+    "masterJobs": {
+      "schema": "MasterJob",
+      "description": "List of predefined jobs to pick from"
+    }
+  }
+}

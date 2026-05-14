@@ -1,0 +1,6 @@
+{
+  "name": "MAMADOLLAY APPS",
+  "description": "A mobile application for housekeeping management featuring DailyJob tracking and ListJob overview.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}

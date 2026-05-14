@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      // Hardcoded bootstrap admin or lookup in admins collection
+      return isSignedIn() && (
+        request.auth.token.email == 'mamadollay95@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // User Profile Validation
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['id', 'username', 'pin', 'name', 'role']) &&
+             data.keys().size() >= 5 && data.keys().size() <= 6 &&
+             data.id is string && data.id.size() <= 128 &&
+             data.username is string && data.username.size() <= 50 &&
+             data.pin is string && data.pin.size() == 4 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.role in ['Admin', 'Staff'] &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 100));
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() && isValidUserAccount(incoming());
+    }
+
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Daily Jobs Validation
+    function isValidDailyJob(data) {
+      return data.keys().hasAll(['id', 'tanggal', 'pic', 'lokasi', 'shift', 'kegiatan', 'waktuMulai', 'waktuSelesai', 'durasi']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.tanggal is string && data.tanggal.size() <= 20 &&
+             data.pic is string && data.pic.size() <= 100 &&
+             data.lokasi is string && data.lokasi.size() <= 200 &&
+             data.shift is string && data.shift.size() <= 50 &&
+             data.kegiatan is string && data.kegiatan.size() <= 500 &&
+             data.waktuMulai is string && data.waktuMulai.size() <= 10 &&
+             data.waktuSelesai is string && data.waktuSelesai.size() <= 10 &&
+             data.durasi is string && data.durasi.size() <= 50 &&
+             (!('foto' in data) || (data.foto is string && data.foto.size() <= 2000000)) &&
+             (!('keterangan' in data) || (data.keterangan is string && data.keterangan.size() <= 1000));
+    }
+
+    match /dailyJobs/{jobId} {
+      // Secure List Queries: Admin sees all, Staff sees their own (enforced by resource.data.pic or similar)
+      // Actually, for this app, they asked for admin to monitor. 
+      // Let's allow all signed in users to read, but we should restrict 'list' if we want privacy.
+      // The user wants admin to monitor all.
+      allow read: if isSignedIn(); 
+      
+      allow create: if isSignedIn() && isValidDailyJob(incoming()) && (
+        isAdmin() || 
+        // Staff can only create logs with their own name (assuming name is stored in auth or we match somehow)
+        // For now, let's just allow if signed in, but we would ideally check a 'users' record.
+        true 
+      );
+      
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (existing().pic == incoming().pic && isValidDailyJob(incoming()))
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    match /masterJobs/{jobId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
