@@ -41,58 +41,135 @@ import {
   orderBy, 
   getDocs,
   where,
-  limit
+  limit,
+  writeBatch
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { handleFirestoreError, OperationType } from './lib/firebaseUtils';
 
 // Mock Master Jobs
 const INITIAL_MASTER_JOBS: MasterJob[] = [
-  // Shift 1A
-  { id: '1', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruangan ADM Outbound' },
-  { id: '2', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer ruang ADM Outbound' },
-  { id: '3', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Praposting' },
-  { id: '4', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer area Praposting' },
-  { id: '5', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Receiving Outbound' },
-  { id: '6', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer area Receiving' },
-  { id: '7', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Parkir motor' },
-  { id: '8', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area kantin' },
-  { id: '9', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruang IT' },
-  { id: '10', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan komputer ruang IT' },
-  { id: '11', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruang CO Working' },
-  { id: '12', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan perangkat ruang CO Workinng' },
-  { id: '13', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kamar Mandi Depan' },
-  { id: '14', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kamar Mandi Tamu' },
-  { id: '15', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer ruang SCO (Abi Daud)' },
-  { id: '16', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kaca area SCO-TS-CO Working' },
-  { id: '17', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Pengisian Galon' },
-  { id: '18', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Storing Kebersihan Halaman' },
-  { id: '19', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Sortir karung' },
-  { id: '20', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kamar mandi PIC' },
-  { id: '21', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Mushola' },
-  { id: '22', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Gudang Inbound-Gateway' },
-  { id: '23', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Halaman Gudang Inbound-Gateway' },
-  { id: '24', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Sulo area Gudang Inbound-Gateway' },
-  { id: '25', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Lain – Lain' },
-  { id: '26', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruang SCO' },
-  
-  // Shift 1B
-  { id: '27', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan ruangan ADM Inbound' },
-  { id: '28', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Meja dan computer ruangan ADM Inbound' },
-  { id: '29', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Urinoir ruang ADM Inbound' },
-  { id: '30', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Cheker POD' },
-  { id: '31', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Halaman Adm Inbound-Pos Scurity' },
-  { id: '32', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Pos Scurity dan gardu' },
-  { id: '33', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Pengisian Galon' },
-  { id: '34', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Storing Kebersihan Halaman' },
-  { id: '35', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Sortir karung' },
-  { id: '36', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Kamar mandi PIC' },
-  { id: '37', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Mushola' },
-  { id: '38', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Gudang Inbound-Gateway' },
-  { id: '39', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Halaman Gudang Inbound-Gateway' },
-  { id: '40', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Sulo area Gudang Inbound-Gateway' },
-  { id: '41', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Lain – Lain' },
-  { id: '42', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan ruang SCO' },
+  // Gudang Cibitung - Shift 1A
+  { id: 'gc-1a-1', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruangan ADM Outbound' },
+  { id: 'gc-1a-2', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer ruang ADM Outbound' },
+  { id: 'gc-1a-3', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Praposting' },
+  { id: 'gc-1a-4', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer area Praposting' },
+  { id: 'gc-1a-5', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Receiving Outbound' },
+  { id: 'gc-1a-6', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer area Receiving' },
+  { id: 'gc-1a-7', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Parkir motor' },
+  { id: 'gc-1a-8', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area kantin' },
+  { id: 'gc-1a-9', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruang IT' },
+  { id: 'gc-1a-10', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan komputer ruang IT' },
+  { id: 'gc-1a-11', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruang CO Working' },
+  { id: 'gc-1a-12', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan perangkat ruang CO Workinng' },
+  { id: 'gc-1a-13', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kamar Mandi Depan' },
+  { id: 'gc-1a-14', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kamar Mandi Tamu' },
+  { id: 'gc-1a-15', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan meja dan computer ruang SCO (Abi Daud)' },
+  { id: 'gc-1a-16', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kaca area SCO-TS-CO Working' },
+  { id: 'gc-1a-17', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Pengisian Galon' },
+  { id: 'gc-1a-18', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Storing Kebersihan Halaman' },
+  { id: 'gc-1a-19', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Sortir karung' },
+  { id: 'gc-1a-20', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Kamar mandi PIC' },
+  { id: 'gc-1a-21', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Mushola' },
+  { id: 'gc-1a-22', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Gudang Inbound-Gateway' },
+  { id: 'gc-1a-23', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan area Halaman Gudang Inbound-Gateway' },
+  { id: 'gc-1a-24', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan Sulo area Gudang Inbound-Gateway' },
+  { id: 'gc-1a-25', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Lain – Lain' },
+  { id: 'gc-1a-26', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1A', kegiatan: 'Kebersihan ruang SCO' },
+
+  // Gudang Cibitung - Shift 1B
+  { id: 'gc-1b-1', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan ruangan ADM Inbound' },
+  { id: 'gc-1b-2', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Meja dan computer ruangan ADM Inbound' },
+  { id: 'gc-1b-3', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Urinoir ruang ADM Inbound' },
+  { id: 'gc-1b-4', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Cheker POD' },
+  { id: 'gc-1b-5', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Halaman Adm Inbound-Pos Scurity' },
+  { id: 'gc-1b-6', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Pos Scurity dan gardu' },
+  { id: 'gc-1b-7', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Pengisian Galon' },
+  { id: 'gc-1b-8', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Storing Kebersihan Halaman' },
+  { id: 'gc-1b-9', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Sortir karung' },
+  { id: 'gc-1b-10', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Kamar mandi PIC' },
+  { id: 'gc-1b-11', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Mushola' },
+  { id: 'gc-1b-12', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Gudang Inbound-Gateway' },
+  { id: 'gc-1b-13', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan area Halaman Gudang Inbound-Gateway' },
+  { id: 'gc-1b-14', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan Sulo area Gudang Inbound-Gateway' },
+  { id: 'gc-1b-15', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Lain – Lain' },
+  { id: 'gc-1b-16', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 1B', kegiatan: 'Kebersihan ruang SCO' },
+
+  // Gudang Cibitung - Shift 2
+  { id: 'gc-2-1', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan area Gudang Outbound' },
+  { id: 'gc-2-2', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Meja dan Komputer area Gudang Outbound' },
+  { id: 'gc-2-3', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan area Lorong belakang Gudang Outbound' },
+  { id: 'gc-2-4', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Urinoir Gudang Outbound' },
+  { id: 'gc-2-5', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Pengangkutan sampah Gudang Obd and packing kayu' },
+  { id: 'gc-2-6', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Sortir karung' },
+  { id: 'gc-2-7', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar mandi PIC' },
+  { id: 'gc-2-8', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Mushola' },
+  { id: 'gc-2-9', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Storing Kebersihan Halaman' },
+  { id: 'gc-2-10', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Pengisian Galon' },
+  { id: 'gc-2-11', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan area dalam Gudang Inbound' },
+  { id: 'gc-2-12', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan area halaman Gudang Inbound-Gateway' },
+  { id: 'gc-2-13', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan area Halaman Adm Inbound-Pos Scurity' },
+  { id: 'gc-2-14', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Depan (Diki Kharisma)' },
+  { id: 'gc-2-15', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 2', kegiatan: 'Lain – Lain' },
+
+  // Gudang Cibitung - Shift 3
+  { id: 'gc-3-1', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan ruangan SCO' },
+  { id: 'gc-3-2', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Meja dan Komputer ruangan SCO' },
+  { id: 'gc-3-3', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan ruangan GA' },
+  { id: 'gc-3-4', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Meja dan Komputer ruangan GA' },
+  { id: 'gc-3-5', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan ruangan TS – BRINKS' },
+  { id: 'gc-3-6', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Tempat sampah All area' },
+  { id: 'gc-3-7', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Kamar Mandi Depan' },
+  { id: 'gc-3-8', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Pengambilan karung Inbound' },
+  { id: 'gc-3-9', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan ruangan Comsup' },
+  { id: 'gc-3-10', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Meja dan Komputer ruangan Comsup' },
+  { id: 'gc-3-11', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Storing kebersihan Smoking Area' },
+  { id: 'gc-3-12', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan area Receiving Outbound' },
+  { id: 'gc-3-13', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Pengambilan karung Pick-up outbound' },
+  { id: 'gc-3-14', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan All area Halaman' },
+  { id: 'gc-3-15', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Sortir Karung' },
+  { id: 'gc-3-16', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Kamar mandi PIC' },
+  { id: 'gc-3-17', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Mushola' },
+  { id: 'gc-3-18', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Kebersihan Tempat sampah All Gudang' },
+  { id: 'gc-3-19', lokasi: 'Gudang Cibitung', shiftKerja: 'Shift 3', kegiatan: 'Lain – Lain' },
+
+  // HO Grandwisata - Shift 1
+  { id: 'ho-1-1', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan ALL Ruangan Lantai 1' },
+  { id: 'ho-1-2', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Meja dan Komputer SCO' },
+  { id: 'ho-1-3', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Meja dan Komputer ruangan Bu Leni' },
+  { id: 'ho-1-4', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Storing AC dan Lampu ALL Gedung' },
+  { id: 'ho-1-5', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kamar Mandi Lantai 1 WIC' },
+  { id: 'ho-1-6', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kamar Mandi Lantai 1 R. Meeting' },
+  { id: 'ho-1-7', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kamar Mandi Lantai 2 HC' },
+  { id: 'ho-1-8', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kamar Mandi Lantai 2 CS' },
+  { id: 'ho-1-9', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kamar Mandi Lantai 3 Sales' },
+  { id: 'ho-1-10', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kamar Mandi Lantai 3 Finance' },
+  { id: 'ho-1-11', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Kaca depan SCO - WIC' },
+  { id: 'ho-1-12', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Pengisian Galon' },
+  { id: 'ho-1-13', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan dan Pel Lantai ALL Gedung' },
+  { id: 'ho-1-14', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Storing Kebersihan' },
+  { id: 'ho-1-15', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Storing Air Pembuangan ALL AC' },
+  { id: 'ho-1-16', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Pembuangan Sampah ALL Ruangan' },
+  { id: 'ho-1-17', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan dan Pel Lantai ALL Ruangan' },
+  { id: 'ho-1-18', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Kebersihan Halaman' },
+  { id: 'ho-1-19', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 1', kegiatan: 'Lain – Lain' },
+
+  // HO Grandwisata - Shift 2
+  { id: 'ho-2-1', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Lantai 1 WIC' },
+  { id: 'ho-2-2', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Lantai 1 R. Meeting' },
+  { id: 'ho-2-3', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Lantai 2 HC' },
+  { id: 'ho-2-4', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Lantai 2 CS' },
+  { id: 'ho-2-5', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Lantai 3 Sales' },
+  { id: 'ho-2-6', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kamar Mandi Lantai 3 Finance' },
+  { id: 'ho-2-7', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan dan Pel Lantai ALL Gedung' },
+  { id: 'ho-2-8', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Storing Kebersihan' },
+  { id: 'ho-2-9', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Kaca depan SCO – WIC' },
+  { id: 'ho-2-10', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Pengisian Galon' },
+  { id: 'ho-2-11', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan ALL Ruangan' },
+  { id: 'ho-2-12', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Meja dan Komputer ALL Ruangan' },
+  { id: 'ho-2-13', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Pembuangan Sampah ALL ruangan' },
+  { id: 'ho-2-14', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Kebersihan Halaman' },
+  { id: 'ho-2-15', lokasi: 'HO Grandwisata', shiftKerja: 'Shift 2', kegiatan: 'Lain – Lain' },
 ];
 
 const DEFAULT_ADMIN: UserAccount = {
@@ -106,11 +183,18 @@ const DEFAULT_ADMIN: UserAccount = {
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [view, setView] = useState<AppView>('Login');
+  
+  const handleSetView = (newView: AppView) => {
+    setSearchQuery('');
+    setView(newView);
+  };
+
   const [dailyJobs, setDailyJobs] = useState<DailyJob[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [masterJobs, setMasterJobs] = useState<MasterJob[]>([]);
   const [preFillData, setPreFillData] = useState<Partial<DailyJob> | null>(null);
   const [adminStaffFilter, setAdminStaffFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
   // Auth Listener
@@ -125,7 +209,7 @@ export default function App() {
           if (!querySnapshot.empty) {
             const userData = querySnapshot.docs[0].data() as UserAccount;
             setCurrentUser(userData);
-            setView('Home');
+            handleSetView('Home');
           } else if (user.email === 'mamadollay95@gmail.com') {
             // Bootstrap admin
             const adminUser: UserAccount = {
@@ -139,7 +223,7 @@ export default function App() {
             setCurrentUser(adminUser);
             // Optionally save to Firestore if not exists
             await setDoc(doc(db, 'users', user.uid), adminUser);
-            setView('Home');
+            handleSetView('Home');
           } else {
             // Logged in but no profile found
             // Maybe it's a first time user, but we'll ask admin to add them
@@ -152,7 +236,7 @@ export default function App() {
         }
       } else {
         setCurrentUser(null);
-        setView('Login');
+        handleSetView('Login');
       }
       setIsLoading(false);
     });
@@ -210,7 +294,7 @@ export default function App() {
     try {
       await logOut();
       setCurrentUser(null);
-      setView('Login');
+      handleSetView('Login');
     } catch (error) {
       console.error(error);
     }
@@ -220,10 +304,43 @@ export default function App() {
     try {
       // Use Firestore to generate ID if needed, but we already have one
       await setDoc(doc(db, 'dailyJobs', job.id), job);
-      setView('DailyJobList');
+      handleSetView('DailyJobList');
       setPreFillData(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'dailyJobs');
+    }
+  };
+
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const syncMasterJobs = async () => {
+    if (currentUser?.role !== 'Admin') {
+      console.warn('Sync attempt by non-admin');
+      return;
+    }
+    
+    setIsSyncing(true);
+    console.log('Syncing Master Jobs...', INITIAL_MASTER_JOBS.length, 'items');
+    
+    try {
+      const batch = writeBatch(db);
+      INITIAL_MASTER_JOBS.forEach(job => {
+        batch.set(doc(db, 'masterJobs', job.id), job);
+      });
+      await batch.commit();
+      console.log('Sync successful');
+      alert('Daftar tugas berhasil diperbarui dari template!');
+    } catch (error) {
+      console.error('Sync failed:', error);
+      alert('Gagal memperbarui data: ' + (error instanceof Error ? error.message : String(error)));
+      // Still call handleFirestoreError for reporting if needed
+      try {
+        handleFirestoreError(error, OperationType.WRITE, 'masterJobs');
+      } catch (e) {
+        // handleFirestoreError throws, so we ignore the throw since we already alerted
+      }
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -249,6 +366,46 @@ export default function App() {
       await deleteDoc(doc(db, 'users', id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
+    }
+  };
+
+  const [isAddingMasterJob, setIsAddingMasterJob] = useState(false);
+  const [newMasterJob, setNewMasterJob] = useState({
+    lokasi: '',
+    shiftKerja: 'Shift 1A' as Shift,
+    kegiatan: ''
+  });
+
+  const handleAddMasterJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMasterJob.lokasi || !newMasterJob.kegiatan) {
+      alert('Harap isi Lokasi dan Kegiatan');
+      return;
+    }
+
+    await addMasterJob({
+      id: `custom-${Math.random().toString(36).substr(2, 5)}`,
+      ...newMasterJob
+    });
+    
+    setNewMasterJob({ lokasi: '', shiftKerja: 'Shift 1A', kegiatan: '' });
+    setIsAddingMasterJob(false);
+  };
+
+  const addMasterJob = async (job: MasterJob) => {
+    try {
+      await setDoc(doc(db, 'masterJobs', job.id), job);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'masterJobs');
+    }
+  };
+
+  const deleteMasterJob = async (id: string) => {
+    if (!window.confirm('Hapus tugas ini?')) return;
+    try {
+      await deleteDoc(doc(db, 'masterJobs', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `masterJobs/${id}`);
     }
   };
 
@@ -288,7 +445,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           {view !== 'Home' && (
             <button 
-              onClick={() => setView('Home')}
+              onClick={() => handleSetView('Home')}
               className="p-2 -ml-2 rounded-xl text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
             >
               <ChevronLeft size={20} />
@@ -355,26 +512,26 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <MenuCard 
-                    onClick={() => setView('DailyJobList')}
+                    onClick={() => handleSetView('DailyJobList')}
                     icon={<Calendar className="text-indigo-600" />}
                     label="Daily Log"
                     color="bg-indigo-50"
                   />
                   <MenuCard 
-                    onClick={() => setView('MasterJobList')}
+                    onClick={() => handleSetView('MasterJobList')}
                     icon={<ClipboardList className="text-amber-600" />}
                     label="Daftar Tugas"
                     color="bg-amber-50"
                   />
                   <MenuCard 
-                    onClick={() => setView('Reports')}
+                    onClick={() => handleSetView('Reports')}
                     icon={<BarChart3 className="text-rose-600" />}
                     label="Laporan"
                     color="bg-rose-50"
                   />
                   {currentUser?.role === 'Admin' && (
                     <MenuCard 
-                      onClick={() => setView('UserManagement')}
+                      onClick={() => handleSetView('UserManagement')}
                       icon={<Users className="text-emerald-600" />}
                       label="Staff"
                       color="bg-emerald-50"
@@ -395,7 +552,7 @@ export default function App() {
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-xl font-black text-slate-900">Histori Kerja</h2>
                 <button 
-                  onClick={() => setView('DailyJobForm')}
+                  onClick={() => handleSetView('DailyJobForm')}
                   className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold transition-all hover:bg-indigo-700 active:scale-95 shadow-lg shadow-indigo-100 uppercase"
                 >
                   <Plus size={16} />
@@ -502,7 +659,7 @@ export default function App() {
               <DailyForm 
                 masterJobs={masterJobs} 
                 onSubmit={addDailyJob} 
-                onCancel={() => { setView('DailyJobList'); setPreFillData(null); }} 
+                onCancel={() => { handleSetView('DailyJobList'); setPreFillData(null); }} 
                 initialData={preFillData ? { ...preFillData, pic: currentUser?.name } : { pic: currentUser?.name }}
               />
             </motion.div>
@@ -533,32 +690,131 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-6"
             >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-black text-slate-900">Daftar Tugas</h2>
+                {currentUser?.role === 'Admin' && (
+                  <button 
+                    onClick={() => setIsAddingMasterJob(!isAddingMasterJob)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold transition-all active:scale-95 shadow-lg shadow-indigo-100 uppercase ${
+                      isAddingMasterJob ? 'bg-slate-200 text-slate-600' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
+                  >
+                    {isAddingMasterJob ? 'Batal' : (
+                      <>
+                        <Plus size={16} />
+                        Tambah
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {isAddingMasterJob && (
+                <motion.form 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  onSubmit={handleAddMasterJob}
+                  className="bg-white p-6 rounded-[2.5rem] border border-indigo-100 shadow-xl shadow-indigo-50/50 space-y-4 border-2"
+                >
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Lokasi</label>
+                      <input 
+                        type="text" 
+                        placeholder="Contoh: Gudang Cibitung"
+                        value={newMasterJob.lokasi}
+                        onChange={e => setNewMasterJob({...newMasterJob, lokasi: e.target.value})}
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-[10px] font-bold uppercase focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Shift</label>
+                      <select 
+                        value={newMasterJob.shiftKerja}
+                        onChange={e => setNewMasterJob({...newMasterJob, shiftKerja: e.target.value as any})}
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-[10px] font-bold uppercase appearance-none focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                      >
+                        <option value="Shift 1A">Shift 1A</option>
+                        <option value="Shift 1B">Shift 1B</option>
+                        <option value="Shift 2">Shift 2</option>
+                        <option value="Shift 3">Shift 3</option>
+                        <option value="Shift 1">Shift 1</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nama Kegiatan</label>
+                    <textarea 
+                      placeholder="Contoh: Kebersihan Ruang ADM"
+                      value={newMasterJob.kegiatan}
+                      onChange={e => setNewMasterJob({...newMasterJob, kegiatan: e.target.value})}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-[10px] font-bold uppercase focus:ring-2 focus:ring-indigo-100 outline-none transition-all min-h-[60px]"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl text-[11px] uppercase shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-[0.98]"
+                  >
+                    Simpan Tugas Baru
+                  </button>
+                </motion.form>
+              )}
+
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input 
                   type="text" 
                   placeholder="Cari lokasi atau kegiatan..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-white border border-slate-100 rounded-2xl py-3.5 pl-12 pr-4 text-[11px] font-bold uppercase shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-all"
                 />
               </div>
 
               <div className="space-y-4">
-                <h2 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Daftar Tugas Standar</h2>
+                <div className="flex items-center justify-between pl-1">
+                  <h2 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest text-left">Daftar Tugas Standar</h2>
+                  {currentUser?.role === 'Admin' && (
+                    <button 
+                      onClick={syncMasterJobs}
+                      disabled={isSyncing}
+                      className={`text-[9px] font-bold uppercase hover:underline transition-colors ${isSyncing ? 'text-slate-300' : 'text-indigo-600'}`}
+                    >
+                      {isSyncing ? 'Memproses...' : 'Reset Default'}
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-5">
-                  {masterJobs.map((job) => (
+                  {masterJobs
+                    .filter(job => 
+                      job.kegiatan.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      job.lokasi.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      job.shiftKerja.toLowerCase().includes(searchQuery.toLowerCase())
+                    )
+                    .map((job) => (
                     <div key={job.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all">
                       <div className="flex items-center justify-between mb-3">
-                        <span className={`px-2.5 py-1 rounded-xl text-[9px] font-extrabold uppercase ${
-                          job.shiftKerja.includes('1A') ? 'bg-amber-50 text-amber-600' :
-                          job.shiftKerja.includes('1B') ? 'bg-indigo-50 text-indigo-600' :
-                          'bg-slate-900 text-white'
-                        }`}>
-                          {job.shiftKerja}
-                        </span>
-                        <div className="flex items-center gap-1.5 text-slate-400">
-                          <MapPin size={12} className="text-indigo-400" />
-                          <span className="text-[10px] font-bold uppercase tracking-tight">{job.lokasi}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-1 rounded-xl text-[9px] font-extrabold uppercase ${
+                            job.shiftKerja.includes('1A') ? 'bg-amber-50 text-amber-600' :
+                            job.shiftKerja.includes('1B') ? 'bg-indigo-50 text-indigo-600' :
+                            'bg-slate-900 text-white'
+                          }`}>
+                            {job.shiftKerja}
+                          </span>
+                          <div className="flex items-center gap-1.5 text-slate-400">
+                            <MapPin size={12} className="text-indigo-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-tight">{job.lokasi}</span>
+                          </div>
                         </div>
+                        {currentUser?.role === 'Admin' && (
+                          <button 
+                            onClick={() => deleteMasterJob(job.id)}
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                       <h3 className="font-extrabold text-slate-900 text-base leading-snug mb-5">{job.kegiatan}</h3>
                       <button 
@@ -568,7 +824,7 @@ export default function App() {
                             shift: job.shiftKerja,
                             kegiatan: job.kegiatan
                           });
-                          setView('DailyJobForm');
+                          handleSetView('DailyJobForm');
                         }}
                         className="w-full bg-slate-900 border border-slate-900 py-3 rounded-2xl text-white text-[10px] font-bold uppercase hover:bg-slate-800 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-100"
                       >
@@ -628,25 +884,25 @@ export default function App() {
       <nav className="bg-white/80 backdrop-blur-lg px-6 py-4 fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-sm flex items-center justify-between z-40 rounded-[2.5rem] shadow-2xl shadow-indigo-200/50 border border-white/20">
         <NavButton 
           active={view === 'Home'} 
-          onClick={() => setView('Home')} 
+          onClick={() => handleSetView('Home')} 
           icon={<Home size={20} />} 
           label="Home" 
         />
         <NavButton 
           active={view === 'DailyJobList' || view === 'DailyJobForm'} 
-          onClick={() => setView('DailyJobList')} 
+          onClick={() => handleSetView('DailyJobList')} 
           icon={<Calendar size={20} />} 
           label="Logs" 
         />
         <NavButton 
           active={view === 'Reports'} 
-          onClick={() => setView('Reports')} 
+          onClick={() => handleSetView('Reports')} 
           icon={<BarChart3 size={20} />} 
           label="Stats" 
         />
         <NavButton 
           active={view === 'MasterJobList'} 
-          onClick={() => setView('MasterJobList')} 
+          onClick={() => handleSetView('MasterJobList')} 
           icon={<ClipboardList size={20} />} 
           label="Jobs" 
         />
