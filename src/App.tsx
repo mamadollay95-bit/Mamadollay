@@ -301,12 +301,19 @@ export default function App() {
   };
 
   const addDailyJob = async (job: DailyJob) => {
+    console.log('addDailyJob called with:', job);
+    if (!db) {
+      throw new Error('Database is not initialized');
+    }
     try {
       // Use Firestore to generate ID if needed, but we already have one
-      await setDoc(doc(db, 'dailyJobs', job.id), job);
-      handleSetView('DailyJobList');
+      const docRef = doc(db, 'dailyJobs', job.id);
+      console.log('Writing to path:', docRef.path);
+      await setDoc(docRef, job);
+      console.log('Write successful');
       setPreFillData(null);
     } catch (error) {
+      console.error('Firestore Create Error:', error);
       handleFirestoreError(error, OperationType.CREATE, 'dailyJobs');
     }
   };
@@ -1070,9 +1077,11 @@ function MenuCard({ onClick, icon, label, color }: { onClick: () => void, icon: 
   );
 }
 
-function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs: MasterJob[], onSubmit: (job: DailyJob) => void, onCancel: () => void, initialData?: Partial<DailyJob> }) {
+function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs: MasterJob[], onSubmit: (job: DailyJob) => Promise<void>, onCancel: () => void, initialData?: Partial<DailyJob> }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [formData, setFormData] = useState<Partial<DailyJob>>({
     tanggal: new Date().toISOString().split('T')[0],
     shift: 'Shift 1A',
@@ -1153,8 +1162,10 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
     setFormData({ ...formData, waktuSelesai: getCurrentTime() });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || showSuccess) return;
+
     if (!formData.lokasi || !formData.kegiatan || !formData.pic) {
       alert('Harap isi field Lokasi, Kegiatan, dan PIC');
       return;
@@ -1165,198 +1176,246 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       return;
     }
 
-    const job: DailyJob = {
-      id: Math.random().toString(36).substr(2, 9),
-      tanggal: formData.tanggal!,
-      pic: formData.pic!,
-      lokasi: formData.lokasi!,
-      shift: formData.shift as Shift,
-      kegiatan: formData.kegiatan!,
-      waktuMulai: formData.waktuMulai!,
-      waktuSelesai: formData.waktuSelesai || '-',
-      foto: formData.foto,
-      keterangan: formData.keterangan || '',
-      durasi: calculateDuration(formData.waktuMulai!, formData.waktuSelesai || formData.waktuMulai!),
-    };
-    onSubmit(job);
+    console.log('Submitting form with data:', formData);
+    setIsSubmitting(true);
+    try {
+      const job: DailyJob = {
+        id: Math.random().toString(36).substr(2, 9),
+        tanggal: formData.tanggal!,
+        pic: formData.pic!,
+        lokasi: formData.lokasi!,
+        shift: formData.shift as Shift,
+        kegiatan: formData.kegiatan!,
+        waktuMulai: formData.waktuMulai!,
+        waktuSelesai: formData.waktuSelesai || '-',
+        foto: formData.foto,
+        keterangan: formData.keterangan || '',
+        durasi: calculateDuration(formData.waktuMulai!, formData.waktuSelesai || formData.waktuMulai!),
+      };
+      
+      console.log('Final job object to save:', job);
+      await onSubmit(job);
+      console.log('onSubmit callback finished successfully');
+      setShowSuccess(true);
+      setTimeout(() => {
+        onCancel();
+      }, 2000);
+    } catch (error) {
+      console.error('Submit execution error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert(`Gagal menyimpan laporan: ${errorMessage}`);
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Tanggal</label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
-              <input 
-                type="date" 
-                value={formData.tanggal}
-                readOnly
-                className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold focus:outline-none transition-all cursor-default"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Nama PIC</label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
-              <input 
-                type="text" 
-                placeholder="NAMA PIC"
-                readOnly
-                value={formData.pic}
-                className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold uppercase focus:outline-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Lokasi</label>
-            <div className="relative">
-              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
-              <select 
-                value={formData.lokasi}
-                onChange={(e) => setFormData({ ...formData, lokasi: e.target.value, kegiatan: '' })}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
-              >
-                <option value="">- PILIH LOKASI -</option>
-                {locations.map(loc => (
-                  <option key={loc} value={loc}>{loc}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Shift</label>
-            <div className="relative">
-              <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
-              <select 
-                value={formData.shift}
-                onChange={(e) => setFormData({ ...formData, shift: e.target.value as Shift, kegiatan: '' })}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
-              >
-                <option value="">- PILIH SHIFT -</option>
-                {availableShifts.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Kegiatan</label>
-          <div className="relative">
-            <ClipboardList className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
-            <select 
-              value={formData.kegiatan}
-              onChange={(e) => setFormData({ ...formData, kegiatan: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all shadow-inner"
-              disabled={!formData.lokasi || !formData.shift}
-            >
-              <option value="">- PILIH KEGIATAN -</option>
-              {filteredKegiatan.map(k => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Mulai</label>
-            <button 
-              type="button"
-              onClick={handleMulai}
-              className="w-full bg-slate-900 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
-            >
-              <span className="text-sm font-black tracking-widest">{formData.waktuMulai || '--:--'}</span>
-              <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
-                <Clock size={16} />
-              </div>
-            </button>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Selesai</label>
-            <button 
-              type="button"
-              onClick={handleSelesai}
-              className="w-full bg-indigo-600 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
-            >
-              <span className="text-sm font-black tracking-widest">{formData.waktuSelesai || '--:--'}</span>
-              <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
-                <Clock size={16} />
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Bukti Foto</label>
-          <input 
-            type="file" 
-            accept="image/*" 
-            capture="environment" 
-            className="hidden" 
-            ref={fileInputRef} 
-            onChange={handleImageCapture}
-          />
-          <div 
-            onClick={triggerCamera}
-            className="w-full min-h-[140px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-white hover:border-indigo-300 transition-all group overflow-hidden"
+    <div className="relative">
+      <AnimatePresence>
+        {showSuccess && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.1 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-white/60 backdrop-blur-sm"
           >
-            {imagePreview ? (
-              <img src={imagePreview} alt="Captured" className="w-full h-full object-cover max-h-56" />
-            ) : (
-              <>
-                <div className="p-4 bg-white rounded-full shadow-sm group-hover:scale-110 transition-all">
-                  <ImageIcon className="text-indigo-400" size={24} />
+            <motion.div 
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              className="bg-white rounded-[3rem] p-10 shadow-2xl shadow-indigo-200 border border-indigo-50 flex flex-col items-center text-center max-w-xs w-full"
+            >
+              <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center text-white mb-6 shadow-lg shadow-emerald-200">
+                <CheckCircle2 size={40} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2 uppercase">Berhasil Simpan!</h3>
+              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Laporan Anda telah tercatat.</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <form onSubmit={handleSubmit} className={`space-y-6 transition-all duration-500 ${showSuccess ? 'blur-md grayscale opacity-50 pointer-events-none' : ''}`}>
+        <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Tanggal</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
+                <input 
+                  type="date" 
+                  value={formData.tanggal}
+                  readOnly
+                  className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold focus:outline-none transition-all cursor-default"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Nama PIC</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
+                <input 
+                  type="text" 
+                  placeholder="NAMA PIC"
+                  readOnly
+                  value={formData.pic}
+                  className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold uppercase focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Lokasi</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
+                <select 
+                  value={formData.lokasi}
+                  onChange={(e) => setFormData({ ...formData, lokasi: e.target.value, kegiatan: '' })}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
+                >
+                  <option value="">- PILIH LOKASI -</option>
+                  {locations.map(loc => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Shift</label>
+              <div className="relative">
+                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
+                <select 
+                  value={formData.shift}
+                  onChange={(e) => setFormData({ ...formData, shift: e.target.value as Shift, kegiatan: '' })}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
+                >
+                  <option value="">- PILIH SHIFT -</option>
+                  {availableShifts.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Kegiatan</label>
+            <div className="relative">
+              <ClipboardList className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
+              <select 
+                value={formData.kegiatan}
+                onChange={(e) => setFormData({ ...formData, kegiatan: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all shadow-inner"
+                disabled={!formData.lokasi || !formData.shift}
+              >
+                <option value="">- PILIH KEGIATAN -</option>
+                {filteredKegiatan.map(k => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Mulai</label>
+              <button 
+                type="button"
+                onClick={handleMulai}
+                className="w-full bg-slate-900 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
+              >
+                <span className="text-sm font-black tracking-widest">{formData.waktuMulai || '--:--'}</span>
+                <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
+                  <Clock size={16} />
                 </div>
-                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Klik untuk ambil foto</span>
-              </>
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Selesai</label>
+              <button 
+                type="button"
+                onClick={handleSelesai}
+                className="w-full bg-indigo-600 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
+              >
+                <span className="text-sm font-black tracking-widest">{formData.waktuSelesai || '--:--'}</span>
+                <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
+                  <Clock size={16} />
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Bukti Foto</label>
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleImageCapture}
+            />
+            <div 
+              onClick={triggerCamera}
+              className="w-full min-h-[140px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-white hover:border-indigo-300 transition-all group overflow-hidden"
+            >
+              {imagePreview ? (
+                <img src={imagePreview} alt="Captured" className="w-full h-full object-cover max-h-56" />
+              ) : (
+                <>
+                  <div className="p-4 bg-white rounded-full shadow-sm group-hover:scale-110 transition-all">
+                    <ImageIcon className="text-indigo-400" size={24} />
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Klik untuk ambil foto</span>
+                </>
+              )}
+            </div>
+            {imagePreview && (
+              <button 
+                type="button"
+                onClick={() => { setImagePreview(null); setFormData({ ...formData, foto: undefined }); }}
+                className="text-[9px] font-extrabold text-red-500 uppercase mt-2 ml-4 hover:underline"
+              >
+                Hapus Foto
+              </button>
             )}
           </div>
-          {imagePreview && (
-            <button 
-              type="button"
-              onClick={() => { setImagePreview(null); setFormData({ ...formData, foto: undefined }); }}
-              className="text-[9px] font-extrabold text-red-500 uppercase mt-2 ml-4 hover:underline"
-            >
-              Hapus Foto
-            </button>
-          )}
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Catatan (Pilihan)</label>
+            <textarea 
+              placeholder="Tambah catatan di sini..."
+              value={formData.keterangan}
+              onChange={(e) => setFormData({ ...formData, keterangan: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] py-4 px-6 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none transition-all min-h-[100px] shadow-inner"
+            />
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Catatan (Pilihan)</label>
-          <textarea 
-            placeholder="Tambah catatan di sini..."
-            value={formData.keterangan}
-            onChange={(e) => setFormData({ ...formData, keterangan: e.target.value })}
-            className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] py-4 px-6 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none transition-all min-h-[100px] shadow-inner"
-          />
+        <div className="flex gap-4 px-2">
+          <button 
+            type="button" 
+            onClick={onCancel}
+            disabled={isSubmitting}
+            className="flex-1 py-4 rounded-[2rem] bg-white border border-slate-100 text-slate-400 font-bold text-[11px] uppercase transition-all hover:bg-slate-50 active:scale-95 shadow-sm disabled:opacity-50"
+          >
+            Batal
+          </button>
+          <button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="flex-1 py-4 rounded-[2rem] bg-indigo-600 text-white font-bold text-[11px] uppercase transition-all hover:bg-indigo-700 active:scale-95 shadow-xl shadow-indigo-100 disabled:opacity-80 flex items-center justify-center gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Sabar Ya...
+              </>
+            ) : 'Simpan Laporan'}
+          </button>
         </div>
-      </div>
-
-      <div className="flex gap-4 px-2">
-        <button 
-          type="button" 
-          onClick={onCancel}
-          className="flex-1 py-4 rounded-[2rem] bg-white border border-slate-100 text-slate-400 font-bold text-[11px] uppercase transition-all hover:bg-slate-50 active:scale-95 shadow-sm"
-        >
-          Batal
-        </button>
-        <button 
-          type="submit" 
-          className="flex-1 py-4 rounded-[2rem] bg-indigo-600 text-white font-bold text-[11px] uppercase transition-all hover:bg-indigo-700 active:scale-95 shadow-xl shadow-indigo-100"
-        >
-          Simpan Laporan
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }
 
