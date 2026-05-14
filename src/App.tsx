@@ -1076,7 +1076,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
   const [formData, setFormData] = useState<Partial<DailyJob>>({
     tanggal: new Date().toISOString().split('T')[0],
     shift: 'Shift 1A',
-    waktuMulai: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+    waktuMulai: '',
     waktuSelesai: '',
     pic: '',
     lokasi: '',
@@ -1084,6 +1084,20 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
     keterangan: '',
     ...initialData
   });
+
+  const getCurrentTime = () => {
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // Capture start time on mount if not provided by initialData
+  useEffect(() => {
+    if (!formData.waktuMulai) {
+      setFormData(prev => ({ ...prev, waktuMulai: getCurrentTime() }));
+    }
+  }, []);
 
   // Unique locations from master jobs
   const locations = Array.from(new Set(masterJobs.map(j => j.lokasi))).sort();
@@ -1116,7 +1130,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
   };
 
   const calculateDuration = (start: string, end: string) => {
-    if (!start || !end) return '-';
+    if (!start || !end || end === '-') return '-';
     try {
       const [sh, sm] = start.split(':').map(Number);
       const [eh, em] = end.split(':').map(Number);
@@ -1131,15 +1145,23 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
     }
   };
 
+  const handleMulai = () => {
+    setFormData({ ...formData, waktuMulai: getCurrentTime() });
+  };
+
   const handleSelesai = () => {
-    const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-    setFormData({ ...formData, waktuSelesai: now });
+    setFormData({ ...formData, waktuSelesai: getCurrentTime() });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.lokasi || !formData.kegiatan || !formData.pic) {
       alert('Harap isi field Lokasi, Kegiatan, dan PIC');
+      return;
+    }
+
+    if (!formData.waktuMulai) {
+      alert('Harap tentukan Waktu Mulai');
       return;
     }
 
@@ -1154,7 +1176,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       waktuSelesai: formData.waktuSelesai || '-',
       foto: formData.foto,
       keterangan: formData.keterangan || '',
-      durasi: calculateDuration(formData.waktuMulai!, formData.waktuSelesai!),
+      durasi: calculateDuration(formData.waktuMulai!, formData.waktuSelesai || formData.waktuMulai!),
     };
     onSubmit(job);
   };
@@ -1170,8 +1192,8 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
               <input 
                 type="date" 
                 value={formData.tanggal}
-                onChange={(e) => setFormData({ ...formData, tanggal: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white focus:outline-none transition-all"
+                readOnly
+                className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold focus:outline-none transition-all cursor-default"
               />
             </div>
           </div>
@@ -1246,30 +1268,29 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Mulai</label>
-            <input 
-              type="time" 
-              value={formData.waktuMulai}
-              onChange={(e) => setFormData({ ...formData, waktuMulai: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 px-4 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none transition-all"
-            />
+            <button 
+              type="button"
+              onClick={handleMulai}
+              className="w-full bg-slate-900 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
+            >
+              <span className="text-sm font-black tracking-widest">{formData.waktuMulai || '--:--'}</span>
+              <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
+                <Clock size={16} />
+              </div>
+            </button>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Selesai</label>
-            <div className="flex gap-2">
-              <input 
-                type="time" 
-                value={formData.waktuSelesai}
-                onChange={(e) => setFormData({ ...formData, waktuSelesai: e.target.value })}
-                className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl py-2.5 px-4 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none transition-all"
-              />
-              <button 
-                type="button"
-                onClick={handleSelesai}
-                className="bg-indigo-50 text-indigo-600 p-2.5 rounded-2xl hover:bg-indigo-100 active:scale-95 transition-all shadow-sm"
-              >
+            <button 
+              type="button"
+              onClick={handleSelesai}
+              className="w-full bg-indigo-600 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
+            >
+              <span className="text-sm font-black tracking-widest">{formData.waktuSelesai || '--:--'}</span>
+              <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
                 <Clock size={16} />
-              </button>
-            </div>
+              </div>
+            </button>
           </div>
         </div>
 
