@@ -43,7 +43,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() && isValidUserAccount(incoming());
+      allow create, update: if isAdmin() && isValidUserAccount(incoming());
+      allow delete: if isAdmin();
     }
 
     match /admins/{adminId} {

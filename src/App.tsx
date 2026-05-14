@@ -301,19 +301,14 @@ export default function App() {
   };
 
   const addDailyJob = async (job: DailyJob) => {
-    console.log('addDailyJob called with:', job);
     if (!db) {
       throw new Error('Database is not initialized');
     }
     try {
-      // Use Firestore to generate ID if needed, but we already have one
       const docRef = doc(db, 'dailyJobs', job.id);
-      console.log('Writing to path:', docRef.path);
       await setDoc(docRef, job);
-      console.log('Write successful');
       setPreFillData(null);
     } catch (error) {
-      console.error('Firestore Create Error:', error);
       handleFirestoreError(error, OperationType.CREATE, 'dailyJobs');
     }
   };
@@ -1176,7 +1171,6 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       return;
     }
 
-    console.log('Submitting form with data:', formData);
     setIsSubmitting(true);
     try {
       const job: DailyJob = {
@@ -1193,15 +1187,12 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
         durasi: calculateDuration(formData.waktuMulai!, formData.waktuSelesai || formData.waktuMulai!),
       };
       
-      console.log('Final job object to save:', job);
       await onSubmit(job);
-      console.log('onSubmit callback finished successfully');
       setShowSuccess(true);
       setTimeout(() => {
         onCancel();
       }, 2000);
     } catch (error) {
-      console.error('Submit execution error:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       alert(`Gagal menyimpan laporan: ${errorMessage}`);
       setIsSubmitting(false);
