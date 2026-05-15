@@ -24,13 +24,14 @@ import {
   Lock,
   LogIn,
   Download,
-  BarChart3
+  BarChart3,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppView, DailyJob, MasterJob, Shift, UserAccount } from './types';
 
 // Firebase Imports
-import { db, auth, signInWithGoogle, logOut, storage } from './lib/firebase';
+import { db, auth, signInWithGoogle, logOut, storage, getDriveToken } from './lib/firebase';
 import { 
   collection, 
   setDoc, 
@@ -44,29 +45,132 @@ import {
   limit,
   writeBatch
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { handleFirestoreError, OperationType } from './lib/firebaseUtils';
 import imageCompression from 'browser-image-compression';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import axios from 'axios';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
-const uploadAndCompressImage = async (file: File): Promise<string> => {
+const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, percent: number) => void): Promise<string> => {
   const options = {
-    maxSizeMB: 0.5,
-    maxWidthOrHeight: 1280,
-    useWebWorker: true,
-    fileType: 'image/jpeg' as string,
+    maxSizeMB: 0.03, 
+    maxWidthOrHeight: 800,
+    useWebWorker: false, 
+    fileType: 'image/jpeg',
+    initialQuality: 0.6
   };
   
   try {
+    if (onProgress) onProgress('Mengompres...', 0);
     const compressedFile = await imageCompression(file, options);
-    const storageRef = ref(storage, `jobs/${Date.now()}_${file.name.replace(/\s+/g, '_')}`);
-    await uploadBytes(storageRef, compressedFile);
-    const downloadURL = await getDownloadURL(storageRef);
-    return downloadURL;
-  } catch (error) {
-    console.error('Error compressing/uploading image:', error);
+    
+    // 1. Try Google Drive first if token exists
+    const driveToken = getDriveToken();
+    if (driveToken) {
+      try {
+        if (onProgress) onProgress('Unggah ke Drive...', 10);
+        
+        const metadata = {
+          name: `mamadollay_${Date.now()}.jpg`,
+          mimeType: 'image/jpeg'
+        };
+
+        const boundary = '-------mamadollay_upload_boundary';
+        const delimiter = `\r\n--${boundary}\r\n`;
+        const closeDelimiter = `\r\n--${boundary}--`;
+
+        const reader = new FileReader();
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(compressedFile);
+        });
+
+        const multipartBody = 
+          delimiter +
+          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+          JSON.stringify(metadata) +
+          delimiter +
+          'Content-Type: image/jpeg\r\n' +
+          'Content-Transfer-Encoding: base64\r\n\r\n' +
+          base64Data +
+          closeDelimiter;
+
+        if (onProgress) onProgress('Mengirim ke Drive...', 50);
+
+        const response = await axios.post(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+          multipartBody,
+          {
+            headers: {
+              'Authorization': `Bearer ${driveToken}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`
+            }
+          }
+        );
+
+        const fileId = response.data.id;
+        
+        // 2. Set permission to public so thumbnail works everywhere
+        try {
+          if (onProgress) onProgress('Sinkronisasi...', 90);
+          await axios.post(
+            `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+            { role: 'reader', type: 'anyone' },
+            { headers: { 'Authorization': `Bearer ${driveToken}` } }
+          );
+        } catch (permError) {
+          console.warn('Failed to set public permission:', permError);
+        }
+
+        if (onProgress) onProgress('Selesai!', 100);
+        // Using direct thumbnail link which is more reliable
+        return `https://lh3.googleusercontent.com/d/${fileId}=w1000`;
+      } catch (driveError: any) {
+        console.error('Drive upload failed:', driveError);
+        if (driveError.response?.status === 403) {
+           throw new Error('AKSES DRIVE DITOLAK (403). Silahkan aktifkan "Google Drive API" di Cloud Console (console.cloud.google.com).');
+        }
+        console.warn('Drive failed, attempting Firebase Storage fallback...', driveError);
+      }
+    }
+
+    if (!auth.currentUser) throw new Error('Harus login dahulu.');
+
+    const fileName = `jobs/${Date.now()}_${file.name}`;
+    const storageRef = ref(storage, fileName);
+    const uploadTask = uploadBytesResumable(storageRef, compressedFile);
+
+    return new Promise((resolve, reject) => {
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          if (onProgress) onProgress('Mengirim...', Math.round(progress));
+        },
+        (error) => {
+          console.error('Upload error:', error);
+          const currentOrigin = window.location.origin;
+          const bucketName = storage.app.options.storageBucket || 'gen-lang-client-0839939935.firebasestorage.app';
+          
+          let msg = 'Gagal upload foto.';
+          if (error.message.includes('CORS') || error.code === 'storage/unknown' || error.message.includes('failed')) {
+            msg = `KONEKSI DITOLAK (CORS). Silahkan LOGOUT lalu MASUK LAGI untuk mengaktifkan Google Drive. (Domain: ${currentOrigin})`;
+          }
+          reject(new Error(msg));
+        },
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          resolve(downloadURL);
+        }
+      );
+    });
+  } catch (error: any) {
+    console.error('Upload process error:', error);
     throw error;
   }
 };
@@ -222,6 +326,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -783,8 +888,19 @@ export default function App() {
                             </div>
 
                             {job.foto && (
-                              <div className="rounded-2xl overflow-hidden mb-4 border border-slate-100">
-                                <img src={job.foto} alt="Bukti" className="w-full h-48 object-cover hover:scale-105 transition-transform duration-500" />
+                              <div 
+                                className="rounded-2xl overflow-hidden mb-4 border border-slate-100 cursor-pointer group"
+                                onClick={() => setPreviewImage(job.foto)}
+                              >
+                                <img 
+                                  src={job.foto} 
+                                  alt="Bukti" 
+                                  className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-500" 
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="bg-slate-900/40 opacity-0 group-hover:opacity-100 absolute inset-0 flex items-center justify-center transition-opacity text-white font-bold text-[10px] uppercase">
+                                   Sentuh untuk perbesar
+                                </div>
                               </div>
                             )}
                             {job.keterangan && (
@@ -832,6 +948,7 @@ export default function App() {
                 currentUser={currentUser!}
                 staffFilter={adminStaffFilter}
                 setStaffFilter={setAdminStaffFilter}
+                setPreviewImage={setPreviewImage}
                 users={users}
                 onResetData={resetAllData}
               />
@@ -1047,6 +1164,32 @@ export default function App() {
             }}
           />
         )}
+        {previewImage && (
+          <div 
+             className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-xl flex flex-col p-6"
+             onClick={() => setPreviewImage(null)}
+          >
+            <div className="flex justify-end p-2">
+               <button className="p-3 bg-white/10 rounded-full text-white hover:bg-white/20 transition-all">
+                  <Plus className="rotate-45" size={24} />
+               </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+               <motion.img 
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  src={previewImage} 
+                  className="max-w-full max-h-full rounded-2xl shadow-2xl" 
+                  alt="Preview"
+                  onClick={(e) => e.stopPropagation()}
+                  referrerPolicy="no-referrer"
+               />
+            </div>
+            <div className="mt-8 text-center text-white/40 text-[10px] font-bold uppercase tracking-widest">
+               Sentuh dimana saja untuk kembali
+            </div>
+          </div>
+        )}
       </AnimatePresence>
 
       {/* Bottom Nav */}
@@ -1096,39 +1239,81 @@ function LoginScreen({ onLogin }: { onLogin: (un: string, pin: string) => void }
   };
 
   return (
-    <div className="min-h-screen bg-white font-sans text-slate-900 max-w-md mx-auto flex flex-col p-8 overflow-hidden">
-      <div className="flex-1 flex flex-col justify-center max-w-xs mx-auto w-full gap-16">
+    <div className="min-h-screen bg-slate-950 font-sans text-white max-w-md mx-auto flex flex-col p-8 overflow-hidden relative">
+      {/* Decorative Blur */}
+      <div className="absolute top-0 -left-20 w-64 h-64 bg-indigo-600/20 rounded-full blur-[100px]" />
+      <div className="absolute bottom-0 -right-20 w-64 h-64 bg-emerald-600/20 rounded-full blur-[100px]" />
+
+      <div className="flex-1 flex flex-col justify-center max-w-xs mx-auto w-full gap-12 relative z-10">
         <div className="text-center space-y-6">
-          <div className="w-24 h-24 bg-indigo-600 rounded-[2.5rem] mx-auto flex items-center justify-center text-white shadow-xl shadow-indigo-100 rotate-6 hover:rotate-0 transition-transform duration-500">
-            <Lock size={40} />
-          </div>
+          <motion.div 
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-24 h-24 bg-white rounded-[2.5rem] mx-auto flex items-center justify-center text-slate-950 shadow-2xl shadow-indigo-500/20 rotate-6 border-b-8 border-slate-200"
+          >
+            <Lock size={42} />
+          </motion.div>
+          
           <div className="space-y-2">
-            <h1 className="text-3xl font-black tracking-tighter uppercase text-slate-900">MAMADOLLAY <br/> <span className="text-indigo-600 font-extrabold">APPS</span></h1>
-            <p className="text-[10px] font-extrabold uppercase text-slate-400 tracking-[0.4em]">Management System</p>
+            <motion.h1 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="text-4xl font-black tracking-tighter uppercase"
+            >
+              MAMADOLLAY <br/> <span className="text-indigo-400">APPS</span>
+            </motion.h1>
+            <motion.p 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="text-[10px] font-black uppercase text-slate-500 tracking-[0.5em]"
+            >
+              Management System
+            </motion.p>
           </div>
         </div>
 
-        <div className="space-y-8">
-          <div className="text-center space-y-2">
-            <p className="text-sm font-bold text-slate-700">Selamat Datang</p>
-            <p className="text-xs font-medium text-slate-400 px-4 leading-relaxed">
-              Sistem Pelaporan Housekeeping Digital untuk efisiensi operasional petugas.
+        <div className="space-y-6">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="text-center space-y-4"
+          >
+            <p className="text-sm font-bold text-slate-300">Hubungkan Akun Kerja</p>
+            <p className="text-[11px] font-medium text-slate-500 px-6 leading-relaxed">
+              Login untuk mengelola laporan operasional housekeeping secara digital.
             </p>
-          </div>
+          </motion.div>
 
-          <button 
+          <motion.button 
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.4 }}
             onClick={handleGoogleLogin}
             disabled={isLoggingIn}
-            className="w-full bg-white text-slate-900 font-bold py-4 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-100 transition-all hover:shadow-indigo-100 active:scale-95 text-xs uppercase flex items-center justify-center gap-3 disabled:opacity-50"
+            className="w-full bg-white text-slate-950 font-black py-4 rounded-3xl shadow-xl shadow-indigo-500/10 transition-all hover:scale-105 active:scale-95 text-xs uppercase flex items-center justify-center gap-3 disabled:opacity-50"
           >
             <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-            {isLoggingIn ? 'Memproses...' : 'Masuk dengan Google'}
-          </button>
+            {isLoggingIn ? 'Otentikasi...' : 'Masuk dengan Google'}
+          </motion.button>
+
+          <div className="p-4 bg-slate-900/50 rounded-2xl border border-slate-800">
+             <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-relaxed text-center">
+               Aplikasi ini akan menyimpan data foto secara otomatis ke folder Google Drive Anda.
+             </p>
+          </div>
         </div>
 
-        <p className="text-center text-[9px] font-extrabold text-slate-300 uppercase tracking-widest mt-12">
-          © 2026 MAMADOLLAY MULTISERVICES
-        </p>
+        <motion.p 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="text-center text-[9px] font-black text-slate-800 uppercase tracking-widest mt-8"
+        >
+          v2.0 • MAMADOLLAY MULTISERVICES
+        </motion.p>
       </div>
     </div>
   );
@@ -1244,6 +1429,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchKegiatan, setSearchKegiatan] = useState('');
@@ -1337,13 +1523,16 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
     }
 
     setIsSubmitting(true);
+    setUploadStatus('Memulai...');
     try {
       const now = new Date();
       const hours = now.getHours().toString().padStart(2, '0');
       const minutes = now.getMinutes().toString().padStart(2, '0');
       const startTime = `${hours}:${minutes}`;
 
-      const photoUrl = selectedFile ? await uploadAndCompressImage(selectedFile) : '';
+      const photoUrl = selectedFile ? await uploadAndCompressImage(selectedFile, (phase, p) => {
+        setUploadStatus(phase === 'Compressing' ? 'Mengompres...' : `Mengirim ${p}%`);
+      }) : '';
 
       const job: DailyJob = {
         id: Math.random().toString(36).substr(2, 9),
@@ -1534,7 +1723,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
             {isSubmitting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Mulai...
+                <span>{uploadStatus}</span>
               </>
             ) : (
               <>
@@ -1555,6 +1744,7 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [keterangan, setKeterangan] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
 
   const getCurrentTime = () => {
     const now = new Date();
@@ -1593,10 +1783,13 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
   const handleSubmit = async () => {
     if (!selectedFile) return alert('Bukti foto wajib dilampirkan!');
     setIsSubmitting(true);
+    setUploadStatus('Memulai...');
     try {
       const endTime = getCurrentTime();
-      // Compress and upload to storage
-      const photoUrl = await uploadAndCompressImage(selectedFile);
+      // Compress and upload to storage with progress callback
+      const photoUrl = await uploadAndCompressImage(selectedFile, (phase, p) => {
+        setUploadStatus(phase === 'Compressing' ? 'Mengompres...' : `Mengirim ${p}%`);
+      });
       
       const updates = {
         waktuSelesai: endTime,
@@ -1606,7 +1799,9 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
       };
       await onFinish(updates);
     } catch (error) {
-      alert('Gagal menyelesaikan laporan. Pastikan koneksi internet stabil.');
+      console.error('Submit error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert(`Gagal menyelesaikan laporan: ${errorMessage}. Pastikan koneksi internet stabil.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -1670,7 +1865,12 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
           disabled={isSubmitting || !imagePreview}
           className="w-full bg-emerald-600 text-white font-black py-5 rounded-[2rem] text-xs uppercase shadow-xl shadow-emerald-100 disabled:opacity-50 active:scale-95 transition-all flex items-center justify-center gap-2"
         >
-          {isSubmitting ? 'Memproses...' : 'Konfirmasi Selesai'}
+          {isSubmitting ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>{uploadStatus}</span>
+            </>
+          ) : 'Konfirmasi Selesai'}
         </button>
       </motion.div>
     </div>
@@ -1682,6 +1882,7 @@ function ReportsView({
   currentUser, 
   staffFilter, 
   setStaffFilter,
+  setPreviewImage,
   users,
   onResetData
 }: { 
@@ -1689,6 +1890,7 @@ function ReportsView({
   currentUser: UserAccount,
   staffFilter: string,
   setStaffFilter: (s: string) => void,
+  setPreviewImage: (s: string | null) => void,
   users: UserAccount[],
   onResetData: () => Promise<void>
 }) {
@@ -1872,15 +2074,42 @@ function ReportsView({
                   <tr className="bg-slate-50 border-b border-slate-100">
                     <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Tgl</th>
                     <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">PIC</th>
-                    <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Kegiatan</th>
+                    <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Tugas</th>
+                    <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Foto</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {dailyJobs.slice(0, 10).map(job => (
+                  {dailyJobs.slice(0, 20).map(job => (
                     <tr key={job.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-5 py-4 text-[10px] font-bold text-slate-600">{job.tanggal.split('-').slice(1).reverse().join('/')}</td>
                       <td className="px-5 py-4 text-[10px] font-bold text-slate-900">{job.pic}</td>
-                      <td className="px-5 py-4 text-[10px] font-bold text-slate-600 truncate max-w-[140px]">{job.kegiatan}</td>
+                      <td className="px-5 py-4 text-[10px] font-bold text-slate-600 truncate max-w-[120px]">{job.kegiatan}</td>
+                      <td className="px-5 py-4">
+                        {job.foto ? (
+                          <div className="flex items-center gap-2">
+                             <button 
+                               onClick={() => setPreviewImage(job.foto)}
+                               className="w-10 h-10 rounded-lg overflow-hidden border border-slate-100 shadow-sm hover:scale-110 transition-transform inline-block group relative"
+                             >
+                                <img src={job.foto} alt="Bukti" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                   <Search size={12} className="text-white" />
+                                </div>
+                             </button>
+                             <a 
+                               href={job.foto} 
+                               target="_blank" 
+                               rel="noreferrer"
+                               className="p-2 bg-slate-50 text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors"
+                               title="Buka original"
+                             >
+                                <ExternalLink size={12} />
+                             </a>
+                          </div>
+                        ) : (
+                          <span className="text-slate-200">-</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

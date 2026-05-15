@@ -8,15 +8,36 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
-export const googleProvider = new GoogleAuthProvider();
 
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
-export const logOut = () => signOut(auth);
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+
+let driveAccessToken: string | null = sessionStorage.getItem('drive_token');
+
+export const signInWithGoogle = async () => {
+    const result = await signInWithPopup(auth, googleProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    driveAccessToken = credential?.accessToken || null;
+    if (driveAccessToken) {
+        sessionStorage.setItem('drive_token', driveAccessToken);
+    }
+    return result;
+};
+
+export const getDriveToken = () => driveAccessToken;
+
+export const logOut = async () => {
+    driveAccessToken = null;
+    sessionStorage.removeItem('drive_token');
+    return signOut(auth);
+};
 
 // Test connection
 async function testConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    if (db) {
+       await getDocFromServer(doc(db, 'test', 'connection'));
+    }
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Please check your Firebase configuration.");
