@@ -432,7 +432,21 @@ export default function App() {
       jobs = dailyJobs.filter(j => j.pic === adminStaffFilter);
     }
     
-    return jobs;
+    return [...jobs].sort((a, b) => {
+      const isAActive = a.waktuSelesai === '-';
+      const isBActive = b.waktuSelesai === '-';
+      
+      if (isAActive && !isBActive) return -1;
+      if (!isAActive && isBActive) return 1;
+      
+      // For jobs with same status, we use date and time if possible
+      // Assuming yyyy-mm-dd format for tanggal
+      if (a.tanggal !== b.tanggal) {
+        return b.tanggal.localeCompare(a.tanggal);
+      }
+      
+      return b.waktuMulai.localeCompare(a.waktuMulai);
+    });
   };
 
   const visibleJobs = getFilteredJobs();
