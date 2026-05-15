@@ -14,7 +14,9 @@ export interface DailyJob {
   kegiatan: string;
   waktuMulai: string;
   waktuSelesai: string;
-  foto?: string;
+  foto?: string; // Keep for backward compatibility or general use
+  fotoMulai?: string;
+  fotoSelesai?: string;
   keterangan: string;
   durasi: string; // Calculated or stored
 }

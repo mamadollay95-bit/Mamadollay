@@ -55,22 +55,23 @@ import { saveAs } from 'file-saver';
 
 const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, percent: number) => void): Promise<string> => {
   const options = {
-    maxSizeMB: 0.03, 
-    maxWidthOrHeight: 800,
-    useWebWorker: false, 
+    maxSizeMB: 0.2, // Increased from 0.03 to 0.2 to speed up compression
+    maxWidthOrHeight: 1200,
+    useWebWorker: true, 
     fileType: 'image/jpeg',
-    initialQuality: 0.6
+    initialQuality: 0.7
   };
   
   try {
-    if (onProgress) onProgress('Mengompres...', 0);
+    if (onProgress) onProgress('Mengompres...', 5);
     const compressedFile = await imageCompression(file, options);
+    console.log('Compression complete:', compressedFile.size / 1024, 'KB');
     
     // 1. Try Google Drive first if token exists
     const driveToken = getDriveToken();
     if (driveToken) {
       try {
-        if (onProgress) onProgress('Unggah ke Drive...', 10);
+        if (onProgress) onProgress('Menyiapkan Google Drive...', 15);
         
         const metadata = {
           name: `mamadollay_${Date.now()}.jpg`,
@@ -101,7 +102,7 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
           base64Data +
           closeDelimiter;
 
-        if (onProgress) onProgress('Mengirim ke Drive...', 50);
+        if (onProgress) onProgress('Upload ke Drive...', 30);
 
         const response = await axios.post(
           'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
@@ -110,7 +111,8 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
             headers: {
               'Authorization': `Bearer ${driveToken}`,
               'Content-Type': `multipart/related; boundary=${boundary}`
-            }
+            },
+            timeout: 20000 // 20s timeout
           }
         );
 
@@ -118,29 +120,30 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
         
         // 2. Set permission to public so thumbnail works everywhere
         try {
-          if (onProgress) onProgress('Sinkronisasi...', 90);
+          if (onProgress) onProgress('Otorisasi Foto...', 80);
           await axios.post(
             `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
             { role: 'reader', type: 'anyone' },
-            { headers: { 'Authorization': `Bearer ${driveToken}` } }
+            { 
+              headers: { 'Authorization': `Bearer ${driveToken}` },
+              timeout: 10000 
+            }
           );
         } catch (permError) {
           console.warn('Failed to set public permission:', permError);
         }
 
-        if (onProgress) onProgress('Selesai!', 100);
-        // Using direct thumbnail link which is more reliable
+        if (onProgress) onProgress('Hampir Selesai...', 95);
         return `https://lh3.googleusercontent.com/d/${fileId}=w1000`;
       } catch (driveError: any) {
-        console.error('Drive upload failed:', driveError);
-        if (driveError.response?.status === 403) {
-           throw new Error('AKSES DRIVE DITOLAK (403). Silahkan aktifkan "Google Drive API" di Cloud Console (console.cloud.google.com).');
-        }
-        console.warn('Drive failed, attempting Firebase Storage fallback...', driveError);
+        console.error('Drive upload failed, trying fallback...', driveError);
+        // Don't throw 403 here, fallback to Firebase so app doesn't break
       }
     }
 
-    if (!auth.currentUser) throw new Error('Harus login dahulu.');
+    if (!auth.currentUser) throw new Error('Otentikasi diperlukan. Silahkan login ulang.');
+
+    if (onProgress) onProgress('Upload ke Cloud...', 40);
 
     const fileName = `jobs/${Date.now()}_${file.name}`;
     const storageRef = ref(storage, fileName);
@@ -159,7 +162,15 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
           
           let msg = 'Gagal upload foto.';
           if (error.message.includes('CORS') || error.code === 'storage/unknown' || error.message.includes('failed')) {
-            msg = `KONEKSI DITOLAK (CORS). Silahkan LOGOUT lalu MASUK LAGI untuk mengaktifkan Google Drive. (Domain: ${currentOrigin})`;
+            msg = `KONEKSI DITOLAK (CORS). Domain "${currentOrigin}" belum diizinkan di Firebase Storage.
+            
+PERBAIKAN (Hanya Admin):
+1. Buka Google Cloud Shell.
+2. Jalankan:
+   echo '[{"origin": ["*"],"method": ["GET","POST","PUT","DELETE","HEAD"],"responseHeader": ["Content-Type"],"maxAgeSeconds": 3600}]' > cors.json
+   gsutil cors set cors.json gs://${bucketName}
+
+ATAU, Pastikan login dengan Google agar menggunakan storage Google Drive (Auto-CORS).`;
           }
           reject(new Error(msg));
         },
@@ -856,8 +867,29 @@ export default function App() {
                           )}
                         </div>
 
+                        {/* Foto Mulai (Always visible if exists) */}
+                        {job.fotoMulai && (
+                          <div className="mb-4">
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Foto Mulai</p>
+                            <div 
+                              className="rounded-2xl overflow-hidden border border-slate-100 cursor-pointer group relative"
+                              onClick={() => setPreviewImage(job.fotoMulai!)}
+                            >
+                              <img 
+                                src={job.fotoMulai} 
+                                alt="Foto Mulai" 
+                                className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-500" 
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="bg-slate-900/20 opacity-0 group-hover:opacity-100 absolute inset-0 flex items-center justify-center transition-opacity text-white text-[9px] font-black uppercase">
+                                 Lihat Foto Mulai
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {job.waktuSelesai === '-' ? (
-                          <div className="py-6 border-y border-slate-50 mb-4 text-center">
+                          <div className="py-6 border-t border-slate-50 mb-4 text-center">
                             <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-4 flex items-center justify-center gap-2">
                               <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
                               Sedang Dikerjakan (Mulai: {job.waktuMulai})
@@ -887,22 +919,27 @@ export default function App() {
                               </div>
                             </div>
 
-                            {job.foto && (
-                              <div 
-                                className="rounded-2xl overflow-hidden mb-4 border border-slate-100 cursor-pointer group"
-                                onClick={() => setPreviewImage(job.foto)}
-                              >
-                                <img 
-                                  src={job.foto} 
-                                  alt="Bukti" 
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-500" 
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="bg-slate-900/40 opacity-0 group-hover:opacity-100 absolute inset-0 flex items-center justify-center transition-opacity text-white font-bold text-[10px] uppercase">
-                                   Sentuh untuk perbesar
+                            {/* Foto Selesai */}
+                            {job.fotoSelesai && (
+                              <div className="mb-4">
+                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Foto Selesai</p>
+                                <div 
+                                  className="rounded-2xl overflow-hidden border border-slate-100 cursor-pointer group relative"
+                                  onClick={() => setPreviewImage(job.fotoSelesai!)}
+                                >
+                                  <img 
+                                    src={job.fotoSelesai} 
+                                    alt="Foto Selesai" 
+                                    className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-500" 
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <div className="bg-slate-900/40 opacity-0 group-hover:opacity-100 absolute inset-0 flex items-center justify-center transition-opacity text-white font-bold text-[10px] uppercase">
+                                     Lihat Foto Selesai
+                                  </div>
                                 </div>
                               </div>
                             )}
+
                             {job.keterangan && (
                               <div className="p-4 bg-slate-50 rounded-2xl">
                                 <p className="text-[11px] text-slate-500 font-medium italic leading-relaxed">
@@ -1531,7 +1568,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       const startTime = `${hours}:${minutes}`;
 
       const photoUrl = selectedFile ? await uploadAndCompressImage(selectedFile, (phase, p) => {
-        setUploadStatus(phase === 'Compressing' ? 'Mengompres...' : `Mengirim ${p}%`);
+        setUploadStatus(`${phase} (${p}%)`);
       }) : '';
 
       const job: DailyJob = {
@@ -1544,6 +1581,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
         waktuMulai: startTime,
         waktuSelesai: '-',
         foto: photoUrl,
+        fotoMulai: photoUrl,
         keterangan: '',
         durasi: '-',
       };
@@ -1788,12 +1826,13 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
       const endTime = getCurrentTime();
       // Compress and upload to storage with progress callback
       const photoUrl = await uploadAndCompressImage(selectedFile, (phase, p) => {
-        setUploadStatus(phase === 'Compressing' ? 'Mengompres...' : `Mengirim ${p}%`);
+        setUploadStatus(`${phase} (${p}%)`);
       });
       
       const updates = {
         waktuSelesai: endTime,
         foto: photoUrl,
+        fotoSelesai: photoUrl,
         keterangan: keterangan,
         durasi: calculateDuration(job.waktuMulai, endTime)
       };
@@ -1825,9 +1864,18 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+          {job.foto && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Foto Awal (Mulai)</label>
+              <div className="w-full h-32 bg-slate-50 rounded-2xl overflow-hidden border border-slate-100">
+                <img src={job.foto} alt="Foto Awal" className="w-full h-full object-cover opacity-60" referrerPolicy="no-referrer" />
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Bukti Foto (Wajib)</label>
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Foto Bukti Selesai (Wajib)</label>
             <input 
               type="file" accept="image/*" capture="environment" 
               className="hidden" ref={fileInputRef} onChange={handleImageCapture}
@@ -1837,19 +1885,19 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
               className="w-full min-h-[160px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-indigo-50/30 hover:border-indigo-200 transition-all overflow-hidden"
             >
               {imagePreview ? (
-                <img src={imagePreview} alt="Bukti" className="w-full h-full object-cover max-h-64" />
+                <img src={imagePreview} alt="Bukti Selesai" className="w-full h-full object-cover max-h-64" />
               ) : (
                 <>
                   <div className="p-4 bg-white rounded-full shadow-sm text-indigo-400">
                     <ImageIcon size={24} />
                   </div>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Sentuh untuk ambil foto</span>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest text-center px-4">Ambil Foto Hasil Kerja <br/> (Selesai)</span>
                 </>
               )}
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 pb-4">
             <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Catatan Tambahan</label>
             <textarea 
               placeholder="Ceritakan apa yang sudah dikerjakan..."
@@ -2075,7 +2123,8 @@ function ReportsView({
                     <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Tgl</th>
                     <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">PIC</th>
                     <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Tugas</th>
-                    <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Foto</th>
+                    <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Awal</th>
+                    <th className="px-5 py-4 text-[9px] font-extrabold uppercase text-slate-400 tracking-widest">Akhir</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -2085,26 +2134,30 @@ function ReportsView({
                       <td className="px-5 py-4 text-[10px] font-bold text-slate-900">{job.pic}</td>
                       <td className="px-5 py-4 text-[10px] font-bold text-slate-600 truncate max-w-[120px]">{job.kegiatan}</td>
                       <td className="px-5 py-4">
-                        {job.foto ? (
+                        {job.fotoMulai ? (
+                          <button 
+                            onClick={() => setPreviewImage(job.fotoMulai!)}
+                            className="w-8 h-8 rounded-lg overflow-hidden border border-slate-100 shadow-sm hover:scale-110 transition-transform inline-block group relative"
+                          >
+                             <img src={job.fotoMulai} alt="Awal" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Search size={10} className="text-white" />
+                             </div>
+                          </button>
+                        ) : <span className="text-slate-200">-</span>}
+                      </td>
+                      <td className="px-5 py-4">
+                        {job.fotoSelesai ? (
                           <div className="flex items-center gap-2">
                              <button 
-                               onClick={() => setPreviewImage(job.foto)}
-                               className="w-10 h-10 rounded-lg overflow-hidden border border-slate-100 shadow-sm hover:scale-110 transition-transform inline-block group relative"
+                               onClick={() => setPreviewImage(job.fotoSelesai!)}
+                               className="w-8 h-8 rounded-lg overflow-hidden border border-slate-100 shadow-sm hover:scale-110 transition-transform inline-block group relative"
                              >
-                                <img src={job.foto} alt="Bukti" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                <img src={job.fotoSelesai} alt="Akhir" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                   <Search size={12} className="text-white" />
+                                   <Search size={10} className="text-white" />
                                 </div>
                              </button>
-                             <a 
-                               href={job.foto} 
-                               target="_blank" 
-                               rel="noreferrer"
-                               className="p-2 bg-slate-50 text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors"
-                               title="Buka original"
-                             >
-                                <ExternalLink size={12} />
-                             </a>
                           </div>
                         ) : (
                           <span className="text-slate-200">-</span>
