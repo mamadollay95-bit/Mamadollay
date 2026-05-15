@@ -1820,34 +1820,34 @@ function ReportsView({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <button 
-          onClick={exportToCSV}
-          className="w-full bg-slate-900 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-slate-800 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-slate-100"
-        >
-          <Download size={18} />
-          Ekspor Data CSV (Excel)
-        </button>
+      {currentUser.role === 'Admin' && (
+        <div className="space-y-3">
+          <button 
+            onClick={exportToCSV}
+            className="w-full bg-slate-900 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-slate-800 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-slate-100"
+          >
+            <Download size={18} />
+            Ekspor Data CSV (Excel)
+          </button>
 
-        <button 
-          onClick={exportPhotosToZip}
-          disabled={isZipping}
-          className="w-full bg-indigo-600 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-indigo-700 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-indigo-100 disabled:opacity-70"
-        >
-          {isZipping ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Mengemas Foto ({zipProgress}%)
-            </>
-          ) : (
-            <>
-              <ImageIcon size={18} />
-              Backup Semua Foto (ZIP)
-            </>
-          )}
-        </button>
+          <button 
+            onClick={exportPhotosToZip}
+            disabled={isZipping}
+            className="w-full bg-indigo-600 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-indigo-700 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-indigo-100 disabled:opacity-70"
+          >
+            {isZipping ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Mengemas Foto ({zipProgress}%)
+              </>
+            ) : (
+              <>
+                <ImageIcon size={18} />
+                Backup Semua Foto (ZIP)
+              </>
+            )}
+          </button>
 
-        {currentUser.role === 'Admin' && (
           <button 
             onClick={onResetData}
             className="w-full bg-white border border-red-100 text-red-500 font-bold py-4 rounded-[2rem] transition-all hover:bg-red-50 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-lg shadow-red-50/50"
@@ -1855,8 +1855,8 @@ function ReportsView({
             <Trash2 size={18} />
             Kosongkan Database (Reset)
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest pl-2">Aktivitas Terkini</h3>
