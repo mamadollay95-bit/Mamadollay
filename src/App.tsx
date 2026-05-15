@@ -30,7 +30,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AppView, DailyJob, MasterJob, Shift, UserAccount } from './types';
 
 // Firebase Imports
-import { db, auth, signInWithGoogle, logOut } from './lib/firebase';
+import { db, auth, signInWithGoogle, logOut, storage } from './lib/firebase';
 import { 
   collection, 
   setDoc, 
@@ -44,8 +44,32 @@ import {
   limit,
   writeBatch
 } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
 import { handleFirestoreError, OperationType } from './lib/firebaseUtils';
+import imageCompression from 'browser-image-compression';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+
+const uploadAndCompressImage = async (file: File): Promise<string> => {
+  const options = {
+    maxSizeMB: 0.5,
+    maxWidthOrHeight: 1280,
+    useWebWorker: true,
+    fileType: 'image/jpeg' as string,
+  };
+  
+  try {
+    const compressedFile = await imageCompression(file, options);
+    const storageRef = ref(storage, `jobs/${Date.now()}_${file.name.replace(/\s+/g, '_')}`);
+    await uploadBytes(storageRef, compressedFile);
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
+  } catch (error) {
+    console.error('Error compressing/uploading image:', error);
+    throw error;
+  }
+};
 
 // Mock Master Jobs
 const INITIAL_MASTER_JOBS: MasterJob[] = [
@@ -473,6 +497,35 @@ export default function App() {
 
   const visibleJobs = getFilteredJobs();
 
+  const resetAllData = async () => {
+    if (!currentUser || currentUser.role !== 'Admin') return;
+    
+    const confirm1 = window.confirm('APAKAH ANDA YAKIN? Semua laporan (Daily Jobs) akan dihapus secara permanen dari database!');
+    if (!confirm1) return;
+    
+    const confirm2 = window.confirm('Peringatan terakhir: Data yang sudah dihapus tidak dapat dikembalikan. Pastikan Anda sudah Export CSV dan Download Foto. Lanjutkan hapus semua?');
+    if (!confirm2) return;
+
+    setIsLoading(true);
+    try {
+      const q = query(collection(db, 'dailyJobs'));
+      const snapshot = await getDocs(q);
+      
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+      alert('Semua data laporan berhasil dikosongkan!');
+    } catch (error) {
+      console.error('Reset failed:', error);
+      alert('Gagal menghapus data. Silahkan coba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-8 text-center">
@@ -780,6 +833,7 @@ export default function App() {
                 staffFilter={adminStaffFilter}
                 setStaffFilter={setAdminStaffFilter}
                 users={users}
+                onResetData={resetAllData}
               />
             </motion.div>
           )}
@@ -1188,6 +1242,7 @@ function MenuCard({ onClick, icon, label, color }: { onClick: () => void, icon: 
 function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs: MasterJob[], onSubmit: (job: DailyJob) => Promise<void>, onCancel: () => void, initialData?: Partial<DailyJob> }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -1232,47 +1287,13 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
     (!formData.shift || j.shiftKerja === formData.shift)
   ).map(j => j.kegiatan).sort();
 
-  const compressImage = (base64Str: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = base64Str;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.6)); // 60% quality jpeg
-      };
-    });
-  };
-
   const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setSelectedFile(file);
       const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const compressed = await compressImage(base64);
-        setImagePreview(compressed);
-        setFormData({ ...formData, foto: compressed });
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -1322,6 +1343,8 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       const minutes = now.getMinutes().toString().padStart(2, '0');
       const startTime = `${hours}:${minutes}`;
 
+      const photoUrl = selectedFile ? await uploadAndCompressImage(selectedFile) : '';
+
       const job: DailyJob = {
         id: Math.random().toString(36).substr(2, 9),
         tanggal: formData.tanggal!,
@@ -1331,7 +1354,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
         kegiatan: formData.kegiatan!,
         waktuMulai: startTime,
         waktuSelesai: '-',
-        foto: '',
+        foto: photoUrl,
         keterangan: '',
         durasi: '-',
       };
@@ -1529,6 +1552,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
 function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: () => void, onFinish: (updates: Partial<DailyJob>) => Promise<void> }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [keterangan, setKeterangan] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -1554,56 +1578,35 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
     }
   };
 
-  const compressImage = (base64Str: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = base64Str;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-        } else {
-          if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
-      };
-    });
-  };
-
   const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setSelectedFile(file);
       const reader = new FileReader();
-      reader.onloadend = async () => {
-        const compressed = await compressImage(reader.result as string);
-        setImagePreview(compressed);
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
   };
 
   const handleSubmit = async () => {
-    if (!imagePreview) return alert('Bukti foto wajib dilampirkan!');
+    if (!selectedFile) return alert('Bukti foto wajib dilampirkan!');
     setIsSubmitting(true);
     try {
       const endTime = getCurrentTime();
+      // Compress and upload to storage
+      const photoUrl = await uploadAndCompressImage(selectedFile);
+      
       const updates = {
         waktuSelesai: endTime,
-        foto: imagePreview,
+        foto: photoUrl,
         keterangan: keterangan,
         durasi: calculateDuration(job.waktuMulai, endTime)
       };
       await onFinish(updates);
     } catch (error) {
-      alert('Gagal menyelesaikan laporan');
+      alert('Gagal menyelesaikan laporan. Pastikan koneksi internet stabil.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1679,14 +1682,54 @@ function ReportsView({
   currentUser, 
   staffFilter, 
   setStaffFilter,
-  users 
+  users,
+  onResetData
 }: { 
   dailyJobs: DailyJob[], 
   currentUser: UserAccount,
   staffFilter: string,
   setStaffFilter: (s: string) => void,
-  users: UserAccount[]
+  users: UserAccount[],
+  onResetData: () => Promise<void>
 }) {
+  const [isZipping, setIsZipping] = useState(false);
+  const [zipProgress, setZipProgress] = useState(0);
+
+  const exportPhotosToZip = async () => {
+    const jobsWithPhotos = dailyJobs.filter(j => j.foto && j.foto.startsWith('http'));
+    if (jobsWithPhotos.length === 0) return alert('Tidak ada foto untuk di-backup');
+
+    setIsZipping(true);
+    setZipProgress(0);
+    const zip = new JSZip();
+    const photoFolder = zip.folder("daily_photos");
+
+    try {
+      for (let i = 0; i < jobsWithPhotos.length; i++) {
+        const job = jobsWithPhotos[i];
+        setZipProgress(Math.round(((i + 1) / jobsWithPhotos.length) * 100));
+        
+        try {
+          const response = await fetch(job.foto);
+          const blob = await response.blob();
+          const fileName = `${job.tanggal}_${job.pic.replace(/\s+/g, '_')}_${job.id}.jpg`;
+          photoFolder?.file(fileName, blob);
+        } catch (e) {
+          console.error(`Gagal mengunduh foto: ${job.id}`, e);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `backup_foto_${new Date().toISOString().split('T')[0]}.zip`);
+    } catch (error) {
+      console.error('ZIP creation failed:', error);
+      alert('Gagal membuat file ZIP');
+    } finally {
+      setIsZipping(false);
+      setZipProgress(0);
+    }
+  };
+
   const exportToCSV = () => {
     if (dailyJobs.length === 0) return alert('Tidak ada data untuk di-export');
     
@@ -1777,13 +1820,43 @@ function ReportsView({
         </div>
       </div>
 
-      <button 
-        onClick={exportToCSV}
-        className="w-full bg-slate-900 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-slate-800 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-slate-100"
-      >
-        <Download size={18} />
-        Ekspor Data CSV
-      </button>
+      <div className="space-y-3">
+        <button 
+          onClick={exportToCSV}
+          className="w-full bg-slate-900 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-slate-800 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-slate-100"
+        >
+          <Download size={18} />
+          Ekspor Data CSV (Excel)
+        </button>
+
+        <button 
+          onClick={exportPhotosToZip}
+          disabled={isZipping}
+          className="w-full bg-indigo-600 text-white font-bold py-4 rounded-[2rem] transition-all hover:bg-indigo-700 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-xl shadow-indigo-100 disabled:opacity-70"
+        >
+          {isZipping ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Mengemas Foto ({zipProgress}%)
+            </>
+          ) : (
+            <>
+              <ImageIcon size={18} />
+              Backup Semua Foto (ZIP)
+            </>
+          )}
+        </button>
+
+        {currentUser.role === 'Admin' && (
+          <button 
+            onClick={onResetData}
+            className="w-full bg-white border border-red-100 text-red-500 font-bold py-4 rounded-[2rem] transition-all hover:bg-red-50 active:scale-[0.98] flex items-center justify-center gap-3 uppercase text-xs shadow-lg shadow-red-50/50"
+          >
+            <Trash2 size={18} />
+            Kosongkan Database (Reset)
+          </button>
+        )}
+      </div>
 
       <div className="space-y-4">
         <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest pl-2">Aktivitas Terkini</h3>
