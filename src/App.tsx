@@ -346,6 +346,16 @@ export default function App() {
     }
   };
 
+  const [selectedJobForFinish, setSelectedJobForFinish] = useState<DailyJob | null>(null);
+
+  const updateDailyJob = async (id: string, updates: Partial<DailyJob>) => {
+    try {
+      await setDoc(doc(db, 'dailyJobs', id), updates, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `dailyJobs/${id}`);
+    }
+  };
+
   const deleteDailyJob = async (id: string) => {
     try {
       await deleteDoc(doc(db, 'dailyJobs', id));
@@ -616,32 +626,50 @@ export default function App() {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-3 gap-4 py-4 border-y border-slate-50 mb-4">
-                          <div>
-                            <span className="block text-[8px] uppercase font-bold text-slate-400 mb-0.5">Mulai</span>
-                            <span className="text-xs font-bold text-slate-900">{job.waktuMulai}</span>
-                          </div>
-                          <div>
-                            <span className="block text-[8px] uppercase font-bold text-slate-400 mb-0.5">Selesai</span>
-                            <span className="text-xs font-bold text-slate-900">{job.waktuSelesai}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="block text-[8px] uppercase font-bold text-slate-400 mb-0.5">Durasi</span>
-                            <span className="text-xs font-extrabold text-indigo-600">{job.durasi}</span>
-                          </div>
-                        </div>
-
-                        {job.foto && (
-                          <div className="rounded-2xl overflow-hidden mb-4 border border-slate-100">
-                            <img src={job.foto} alt="Bukti" className="w-full h-48 object-cover hover:scale-105 transition-transform duration-500" />
-                          </div>
-                        )}
-                        {job.keterangan && (
-                          <div className="p-4 bg-slate-50 rounded-2xl">
-                            <p className="text-[11px] text-slate-500 font-medium italic leading-relaxed">
-                              "{job.keterangan}"
+                        {job.waktuSelesai === '-' ? (
+                          <div className="py-6 border-y border-slate-50 mb-4 text-center">
+                            <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-4 flex items-center justify-center gap-2">
+                              <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                              Sedang Dikerjakan (Mulai: {job.waktuMulai})
                             </p>
+                            <button 
+                              onClick={() => setSelectedJobForFinish(job)}
+                              className="w-full bg-emerald-600 text-white py-4 rounded-2xl text-[11px] font-black uppercase shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 active:scale-95 transition-all"
+                            >
+                              <CheckCircle2 size={18} />
+                              Selesaikan Laporan
+                            </button>
                           </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-3 gap-4 py-4 border-y border-slate-50 mb-4">
+                              <div>
+                                <span className="block text-[8px] uppercase font-bold text-slate-400 mb-0.5">Mulai</span>
+                                <span className="text-xs font-bold text-slate-900">{job.waktuMulai}</span>
+                              </div>
+                              <div>
+                                <span className="block text-[8px] uppercase font-bold text-slate-400 mb-0.5">Selesai</span>
+                                <span className="text-xs font-bold text-slate-900">{job.waktuSelesai}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="block text-[8px] uppercase font-bold text-slate-400 mb-0.5">Durasi</span>
+                                <span className="text-xs font-extrabold text-indigo-600">{job.durasi}</span>
+                              </div>
+                            </div>
+
+                            {job.foto && (
+                              <div className="rounded-2xl overflow-hidden mb-4 border border-slate-100">
+                                <img src={job.foto} alt="Bukti" className="w-full h-48 object-cover hover:scale-105 transition-transform duration-500" />
+                              </div>
+                            )}
+                            {job.keterangan && (
+                              <div className="p-4 bg-slate-50 rounded-2xl">
+                                <p className="text-[11px] text-slate-500 font-medium italic leading-relaxed">
+                                  "{job.keterangan}"
+                                </p>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -882,6 +910,19 @@ export default function App() {
         </div>
       </main>
 
+      <AnimatePresence>
+        {selectedJobForFinish && (
+          <FinishJobModal 
+            job={selectedJobForFinish} 
+            onClose={() => setSelectedJobForFinish(null)}
+            onFinish={async (updates) => {
+              await updateDailyJob(selectedJobForFinish.id, updates);
+              setSelectedJobForFinish(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Bottom Nav */}
       <nav className="bg-white/80 backdrop-blur-lg px-6 py-4 fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-sm flex items-center justify-between z-40 rounded-[2.5rem] shadow-2xl shadow-indigo-200/50 border border-white/20">
         <NavButton 
@@ -1077,6 +1118,8 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [searchKegiatan, setSearchKegiatan] = useState('');
   const [formData, setFormData] = useState<Partial<DailyJob>>({
     tanggal: new Date().toISOString().split('T')[0],
     shift: 'Shift 1A',
@@ -1200,13 +1243,13 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       return;
     }
 
-    if (!formData.waktuMulai) {
-      alert('Harap tentukan Waktu Mulai');
-      return;
-    }
-
     setIsSubmitting(true);
     try {
+      const now = new Date();
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      const startTime = `${hours}:${minutes}`;
+
       const job: DailyJob = {
         id: Math.random().toString(36).substr(2, 9),
         tanggal: formData.tanggal!,
@@ -1214,11 +1257,11 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
         lokasi: formData.lokasi!,
         shift: formData.shift as Shift,
         kegiatan: formData.kegiatan!,
-        waktuMulai: formData.waktuMulai!,
-        waktuSelesai: formData.waktuSelesai || '-',
-        foto: formData.foto,
-        keterangan: formData.keterangan || '',
-        durasi: calculateDuration(formData.waktuMulai!, formData.waktuSelesai || formData.waktuMulai!),
+        waktuMulai: startTime,
+        waktuSelesai: '-',
+        foto: '',
+        keterangan: '',
+        durasi: '-',
       };
       
       await onSubmit(job);
@@ -1251,8 +1294,8 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
               <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center text-white mb-6 shadow-lg shadow-emerald-200">
                 <CheckCircle2 size={40} />
               </div>
-              <h3 className="text-xl font-black text-slate-900 mb-2 uppercase">Berhasil Simpan!</h3>
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Laporan Anda telah tercatat.</p>
+              <h3 className="text-xl font-black text-slate-900 mb-2 uppercase">Laporan Dimulai!</h3>
+              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Waktu mulai telah dicatat.</p>
             </motion.div>
           </motion.div>
         )}
@@ -1269,7 +1312,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
                   type="date" 
                   value={formData.tanggal}
                   readOnly
-                  className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold focus:outline-none transition-all cursor-default"
+                  className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-3 pl-9 pr-3 text-xs font-bold focus:outline-none transition-all cursor-default"
                 />
               </div>
             </div>
@@ -1282,7 +1325,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
                   placeholder="NAMA PIC"
                   readOnly
                   value={formData.pic}
-                  className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold uppercase focus:outline-none"
+                  className="w-full bg-slate-100 border border-slate-100 rounded-2xl py-3 pl-9 pr-3 text-xs font-bold uppercase focus:outline-none"
                 />
               </div>
             </div>
@@ -1296,7 +1339,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
                 <select 
                   value={formData.lokasi}
                   onChange={(e) => setFormData({ ...formData, lokasi: e.target.value, kegiatan: '' })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all shadow-sm"
                 >
                   <option value="">- PILIH LOKASI -</option>
                   {locations.map(loc => (
@@ -1312,7 +1355,7 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
                 <select 
                   value={formData.shift}
                   onChange={(e) => setFormData({ ...formData, shift: e.target.value as Shift, kegiatan: '' })}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all shadow-sm"
                 >
                   <option value="">- PILIH SHIFT -</option>
                   {availableShifts.map(s => (
@@ -1323,101 +1366,63 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 relative">
             <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Kegiatan</label>
             <div className="relative">
-              <ClipboardList className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={14} />
-              <select 
-                value={formData.kegiatan}
-                onChange={(e) => setFormData({ ...formData, kegiatan: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-[10px] font-black uppercase appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all shadow-inner"
+              <ClipboardList className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none z-10" size={14} />
+              <input 
+                type="text"
+                placeholder={!formData.lokasi || !formData.shift ? "- PILIH LOKASI & SHIFT DULU -" : (formData.kegiatan || "- CARI / PILIH KEGIATAN -")}
+                value={searchKegiatan}
+                onChange={(e) => {
+                  setSearchKegiatan(e.target.value);
+                  setFormData({ ...formData, kegiatan: e.target.value });
+                  setIsDropdownOpen(true);
+                }}
+                onFocus={() => setIsDropdownOpen(true)}
+                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3.5 pl-9 pr-3 text-[10px] font-black uppercase focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all shadow-inner placeholder:text-slate-900"
                 disabled={!formData.lokasi || !formData.shift}
-              >
-                <option value="">- PILIH KEGIATAN -</option>
-                {filteredKegiatan.map(k => (
-                  <option key={k} value={k}>{k}</option>
-                ))}
-              </select>
+              />
+              
+              <AnimatePresence>
+                {isDropdownOpen && (formData.lokasi && formData.shift) && (
+                  <>
+                    <div className="fixed inset-0 z-0" onClick={() => setIsDropdownOpen(false)} />
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-xl z-20 max-h-60 overflow-y-auto"
+                    >
+                      {filteredKegiatan.filter(k => k.toLowerCase().includes(searchKegiatan.toLowerCase())).length > 0 ? (
+                        filteredKegiatan
+                          .filter(k => k.toLowerCase().includes(searchKegiatan.toLowerCase()))
+                          .map((k, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, kegiatan: k });
+                                setSearchKegiatan('');
+                                setIsDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-3 text-[10px] font-bold uppercase hover:bg-indigo-50 border-b border-slate-50 last:border-0"
+                            >
+                              {k}
+                            </button>
+                          ))
+                      ) : (
+                        <div className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-center py-6">Tidak ditemukan</div>
+                      )}
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Mulai</label>
-              <button 
-                type="button"
-                onClick={handleMulai}
-                className="w-full bg-slate-900 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
-              >
-                <span className="text-sm font-black tracking-widest">{formData.waktuMulai || '--:--'}</span>
-                <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
-                  <Clock size={16} />
-                </div>
-              </button>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Waktu Selesai</label>
-              <button 
-                type="button"
-                onClick={handleSelesai}
-                className="w-full bg-indigo-600 text-white rounded-2xl py-3 px-4 flex items-center justify-between group active:scale-95 transition-all shadow-lg shadow-indigo-100/20"
-              >
-                <span className="text-sm font-black tracking-widest">{formData.waktuSelesai || '--:--'}</span>
-                <div className="bg-white/10 p-1.5 rounded-lg group-hover:bg-white/20 transition-colors">
-                  <Clock size={16} />
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Bukti Foto</label>
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment" 
-              className="hidden" 
-              ref={fileInputRef} 
-              onChange={handleImageCapture}
-            />
-            <div 
-              onClick={triggerCamera}
-              className="w-full min-h-[140px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-white hover:border-indigo-300 transition-all group overflow-hidden"
-            >
-              {imagePreview ? (
-                <img src={imagePreview} alt="Captured" className="w-full h-full object-cover max-h-56" />
-              ) : (
-                <>
-                  <div className="p-4 bg-white rounded-full shadow-sm group-hover:scale-110 transition-all">
-                    <ImageIcon className="text-indigo-400" size={24} />
-                  </div>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Klik untuk ambil foto</span>
-                </>
-              )}
-            </div>
-            {imagePreview && (
-              <button 
-                type="button"
-                onClick={() => { setImagePreview(null); setFormData({ ...formData, foto: undefined }); }}
-                className="text-[9px] font-extrabold text-red-500 uppercase mt-2 ml-4 hover:underline"
-              >
-                Hapus Foto
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Catatan (Pilihan)</label>
-            <textarea 
-              placeholder="Tambah catatan di sini..."
-              value={formData.keterangan}
-              onChange={(e) => setFormData({ ...formData, keterangan: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] py-4 px-6 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none transition-all min-h-[100px] shadow-inner"
-            />
           </div>
         </div>
 
-        <div className="flex gap-4 px-2">
+        <div className="flex gap-4 px-2 relative z-10">
           <button 
             type="button" 
             onClick={onCancel}
@@ -1429,17 +1434,170 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
           <button 
             type="submit" 
             disabled={isSubmitting}
-            className="flex-1 py-4 rounded-[2rem] bg-indigo-600 text-white font-bold text-[11px] uppercase transition-all hover:bg-indigo-700 active:scale-95 shadow-xl shadow-indigo-100 disabled:opacity-80 flex items-center justify-center gap-2"
+            className="flex-1 py-4 rounded-[2rem] bg-slate-900 text-white font-bold text-[11px] uppercase transition-all hover:bg-slate-800 active:scale-95 shadow-xl shadow-slate-100 disabled:opacity-80 flex items-center justify-center gap-2"
           >
             {isSubmitting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Sabar Ya...
+                Mulai...
               </>
-            ) : 'Simpan Laporan'}
+            ) : (
+              <>
+                <PlusCircle size={18} />
+                Mulai Laporan
+              </>
+            )}
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: () => void, onFinish: (updates: Partial<DailyJob>) => Promise<void> }) {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [keterangan, setKeterangan] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const getCurrentTime = () => {
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  const calculateDuration = (start: string, end: string) => {
+    if (!start || !end || end === '-') return '-';
+    try {
+      const [sh, sm] = start.split(':').map(Number);
+      const [eh, em] = end.split(':').map(Number);
+      let diffInMinutes = (eh * 60 + em) - (sh * 60 + sm);
+      if (diffInMinutes < 0) diffInMinutes += 24 * 60;
+      const h = Math.floor(diffInMinutes / 60);
+      const m = diffInMinutes % 60;
+      return `${h > 0 ? `${h} jam ` : ''}${m} menit`;
+    } catch (e) {
+      return '-';
+    }
+  };
+
+  const compressImage = (base64Str: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+        } else {
+          if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+    });
+  };
+
+  const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const compressed = await compressImage(reader.result as string);
+        setImagePreview(compressed);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!imagePreview) return alert('Bukti foto wajib dilampirkan!');
+    setIsSubmitting(true);
+    try {
+      const endTime = getCurrentTime();
+      const updates = {
+        waktuSelesai: endTime,
+        foto: imagePreview,
+        keterangan: keterangan,
+        durasi: calculateDuration(job.waktuMulai, endTime)
+      };
+      await onFinish(updates);
+    } catch (error) {
+      alert('Gagal menyelesaikan laporan');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+      <motion.div 
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        className="bg-white w-full max-w-md rounded-t-[3rem] p-8 pb-10 space-y-6"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Selesaikan Laporan</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{job.kegiatan}</p>
+          </div>
+          <button onClick={onClose} className="p-2 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600">
+            <Plus className="rotate-45" size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Bukti Foto (Wajib)</label>
+            <input 
+              type="file" accept="image/*" capture="environment" 
+              className="hidden" ref={fileInputRef} onChange={handleImageCapture}
+            />
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full min-h-[160px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-indigo-50/30 hover:border-indigo-200 transition-all overflow-hidden"
+            >
+              {imagePreview ? (
+                <img src={imagePreview} alt="Bukti" className="w-full h-full object-cover max-h-64" />
+              ) : (
+                <>
+                  <div className="p-4 bg-white rounded-full shadow-sm text-indigo-400">
+                    <ImageIcon size={24} />
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Sentuh untuk ambil foto</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Catatan Tambahan</label>
+            <textarea 
+              placeholder="Ceritakan apa yang sudah dikerjakan..."
+              value={keterangan}
+              onChange={(e) => setKeterangan(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] py-4 px-6 text-xs font-bold focus:ring-2 focus:ring-indigo-100 focus:bg-white outline-none transition-all min-h-[100px]"
+            />
+          </div>
+        </div>
+
+        <button 
+          onClick={handleSubmit}
+          disabled={isSubmitting || !imagePreview}
+          className="w-full bg-emerald-600 text-white font-black py-5 rounded-[2rem] text-xs uppercase shadow-xl shadow-emerald-100 disabled:opacity-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+        >
+          {isSubmitting ? 'Memproses...' : 'Konfirmasi Selesai'}
+        </button>
+      </motion.div>
     </div>
   );
 }
