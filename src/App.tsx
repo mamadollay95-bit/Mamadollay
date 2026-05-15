@@ -196,6 +196,28 @@ export default function App() {
   const [adminStaffFilter, setAdminStaffFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   // Auth Listener
   useEffect(() => {
@@ -564,6 +586,42 @@ export default function App() {
                     />
                   )}
                 </div>
+
+                {isInstallable && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="p-6 rounded-[2.5rem] bg-emerald-50 text-emerald-900 border border-emerald-100 flex flex-col items-center text-center gap-4 shadow-xl shadow-emerald-50/50"
+                  >
+                    <div className="w-12 h-12 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200">
+                      <Download size={24} />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-black uppercase tracking-tight">Instal Aplikasi di Mobile</h3>
+                      <p className="text-[10px] font-bold text-emerald-700/70 uppercase tracking-widest leading-relaxed">Instal aplikasi ke layar utama <br/> agar akses lebih mudah dan cepat.</p>
+                    </div>
+                    <button 
+                      onClick={handleInstallClick}
+                      className="w-full bg-emerald-600 text-white py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-emerald-100 active:scale-95 transition-all"
+                    >
+                      Instal Sekarang
+                    </button>
+                  </motion.div>
+                )}
+
+                {!isInstallable && /iPhone|iPad|iPod/i.test(navigator.userAgent) && (
+                  <div className="p-6 rounded-[2.5rem] bg-indigo-50 border border-indigo-100 flex items-center gap-4">
+                    <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center shrink-0">
+                      <Download size={18} />
+                    </div>
+                    <div className="space-y-0.5">
+                      <h3 className="text-[11px] font-black uppercase tracking-tight">Instal di iOS</h3>
+                      <p className="text-[9px] font-bold text-indigo-700/60 uppercase tracking-wider leading-relaxed">
+                        Klik ikon <span className="bg-indigo-100 px-1 rounded">Share</span> lalu <br/> pilih <span className="bg-indigo-100 px-1 rounded">Add to Home Screen</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
