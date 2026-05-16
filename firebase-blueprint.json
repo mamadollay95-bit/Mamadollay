@@ -44,6 +44,29 @@
         "kegiatan": { "type": "string" }
       },
       "required": ["id", "lokasi", "shiftKerja", "kegiatan"]
+    },
+    "KarungMaster": {
+      "title": "Master Karung",
+      "description": "Daftar jenis karung",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "KarungMasuk": {
+      "title": "Pendataan Karung Masuk",
+      "description": "Laporan karung masuk per PIC",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tanggal": { "type": "string", "format": "date" },
+        "pic": { "type": "string" },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "tanggal", "pic", "items", "createdAt"]
     }
   },
   "firestore": {
@@ -58,6 +81,14 @@
     "masterJobs": {
       "schema": "MasterJob",
       "description": "List of predefined jobs to pick from"
+    },
+    "karungMaster": {
+      "schema": "KarungMaster",
+      "description": "List of sack types (Admin only management)"
+    },
+    "karungMasuk": {
+      "schema": "KarungMasuk",
+      "description": "Collection of incoming sack reports"
     }
   }
 }

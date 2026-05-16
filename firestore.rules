@@ -93,5 +93,25 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
+
+    // Karung Collections
+    function isValidKarungMasuk(data) {
+      return data.keys().hasAll(['id', 'tanggal', 'pic', 'items', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.pic is string && data.pic.size() <= 200 &&
+             data.items is list && data.items.size() <= 100;
+    }
+
+    match /karungMaster/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /karungMasuk/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidKarungMasuk(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
   }
 }

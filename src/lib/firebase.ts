@@ -17,18 +17,25 @@ let driveAccessToken: string | null = sessionStorage.getItem('drive_token');
 export const signInWithGoogle = async () => {
     const result = await signInWithPopup(auth, googleProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    driveAccessToken = credential?.accessToken || null;
-    if (driveAccessToken) {
-        sessionStorage.setItem('drive_token', driveAccessToken);
-    }
+    setDriveToken(credential?.accessToken || null);
     return result;
 };
 
 export const getDriveToken = () => driveAccessToken;
 
+export const setDriveToken = (token: string | null) => {
+    driveAccessToken = token;
+    if (token) {
+        sessionStorage.setItem('drive_token', token);
+    } else {
+        sessionStorage.removeItem('drive_token');
+    }
+};
+
+export const clearDriveToken = () => setDriveToken(null);
+
 export const logOut = async () => {
-    driveAccessToken = null;
-    sessionStorage.removeItem('drive_token');
+    clearDriveToken();
     return signOut(auth);
 };
 

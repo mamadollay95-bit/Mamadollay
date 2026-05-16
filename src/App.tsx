@@ -25,13 +25,18 @@ import {
   LogIn,
   Download,
   BarChart3,
-  ExternalLink
+  ExternalLink,
+  Archive,
+  MoreVertical,
+  Edit2,
+  Trash
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AppView, DailyJob, MasterJob, Shift, UserAccount } from './types';
+import { AppView, DailyJob, MasterJob, Shift, UserAccount, KarungMaster, KarungMasuk, KarungMasukItem } from './types';
+import * as XLSX from 'xlsx';
 
 // Firebase Imports
-import { db, auth, signInWithGoogle, logOut, storage, getDriveToken } from './lib/firebase';
+import { db, auth, signInWithGoogle, logOut, storage, getDriveToken, clearDriveToken } from './lib/firebase';
 import { 
   collection, 
   setDoc, 
@@ -63,9 +68,23 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
   };
   
   try {
-    if (onProgress) onProgress('Mengompres...', 5);
-    const compressedFile = await imageCompression(file, options);
-    console.log('Compression complete:', compressedFile.size / 1024, 'KB');
+    let fileToUpload: File | Blob = file;
+    
+    try {
+      if (onProgress) onProgress('Mengompres...', 5);
+      // Timeout 10s for compression
+      const compressionPromise = imageCompression(file, options);
+      const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
+      
+      const compressed = await Promise.race([compressionPromise, timeoutPromise]);
+      if (compressed) {
+        fileToUpload = compressed;
+        console.log('Compression complete:', (fileToUpload as File).size / 1024, 'KB');
+      }
+    } catch (compErr) {
+      console.warn('Compression skipped:', compErr);
+      if (onProgress) onProgress('Skip Kompresi...', 10);
+    }
     
     // 1. Try Google Drive first if token exists
     const driveToken = getDriveToken();
@@ -89,7 +108,7 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
             resolve(result.split(',')[1]);
           };
           reader.onerror = reject;
-          reader.readAsDataURL(compressedFile);
+          reader.readAsDataURL(fileToUpload);
         });
 
         const multipartBody = 
@@ -102,7 +121,7 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
           base64Data +
           closeDelimiter;
 
-        if (onProgress) onProgress('Upload ke Drive...', 30);
+        if (onProgress) onProgress('Kirim ke Drive...', 30);
 
         const response = await axios.post(
           'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
@@ -112,7 +131,7 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
               'Authorization': `Bearer ${driveToken}`,
               'Content-Type': `multipart/related; boundary=${boundary}`
             },
-            timeout: 20000 // 20s timeout
+            timeout: 30000 
           }
         );
 
@@ -137,7 +156,12 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
         return `https://lh3.googleusercontent.com/d/${fileId}=w1000`;
       } catch (driveError: any) {
         console.error('Drive upload failed, trying fallback...', driveError);
-        // Don't throw 403 here, fallback to Firebase so app doesn't break
+        const status = driveError.response?.status;
+        if (status === 401 || status === 403) {
+          console.warn('Drive access lost (401/403), clearing token...');
+          clearDriveToken();
+        }
+        // Fallback to Firebase Storage
       }
     }
 
@@ -147,34 +171,33 @@ const uploadAndCompressImage = async (file: File, onProgress?: (phase: string, p
 
     const fileName = `jobs/${Date.now()}_${file.name}`;
     const storageRef = ref(storage, fileName);
-    const uploadTask = uploadBytesResumable(storageRef, compressedFile);
+    const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
 
     return new Promise((resolve, reject) => {
+      // Safety timeout for Firebase Storage (60s)
+      const safetyTimeout = setTimeout(() => {
+        uploadTask.cancel();
+        reject(new Error('Upload timeout (60s). Pastikan koneksi stabil.'));
+      }, 60000);
+
       uploadTask.on('state_changed', 
         (snapshot) => {
           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
           if (onProgress) onProgress('Mengirim...', Math.round(progress));
         },
         (error) => {
-          console.error('Upload error:', error);
+          clearTimeout(safetyTimeout);
+          console.error('Cloud Storage error:', error);
           const currentOrigin = window.location.origin;
-          const bucketName = storage.app.options.storageBucket || 'gen-lang-client-0839939935.firebasestorage.app';
           
           let msg = 'Gagal upload foto.';
           if (error.message.includes('CORS') || error.code === 'storage/unknown' || error.message.includes('failed')) {
-            msg = `KONEKSI DITOLAK (CORS). Domain "${currentOrigin}" belum diizinkan di Firebase Storage.
-            
-PERBAIKAN (Hanya Admin):
-1. Buka Google Cloud Shell.
-2. Jalankan:
-   echo '[{"origin": ["*"],"method": ["GET","POST","PUT","DELETE","HEAD"],"responseHeader": ["Content-Type"],"maxAgeSeconds": 3600}]' > cors.json
-   gsutil cors set cors.json gs://${bucketName}
-
-ATAU, Pastikan login dengan Google agar menggunakan storage Google Drive (Auto-CORS).`;
+            msg = `KONEKSI DITOLAK (CORS). Domain "${currentOrigin}" belum diizinkan di Firebase Storage.\n\nPASTIKAN: Login dengan Google agar menggunakan Drive Otomatis (Anti-CORS).`;
           }
           reject(new Error(msg));
         },
         async () => {
+          clearTimeout(safetyTimeout);
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           resolve(downloadURL);
         }
@@ -331,6 +354,8 @@ export default function App() {
   const [dailyJobs, setDailyJobs] = useState<DailyJob[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [masterJobs, setMasterJobs] = useState<MasterJob[]>([]);
+  const [karungMaster, setKarungMaster] = useState<KarungMaster[]>([]);
+  const [karungMasuk, setKarungMasuk] = useState<KarungMasuk[]>([]);
   const [preFillData, setPreFillData] = useState<Partial<DailyJob> | null>(null);
   const [adminStaffFilter, setAdminStaffFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -441,6 +466,27 @@ export default function App() {
       unsubJobs();
       unsubUsers();
       unsubMaster();
+    };
+  }, [currentUser]);
+
+  // Karung Listeners
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const unsubKarungMaster = onSnapshot(collection(db, 'karungMaster'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as KarungMaster));
+      setKarungMaster(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'karungMaster'));
+
+    const qKarungMasuk = query(collection(db, 'karungMasuk'), orderBy('tanggal', 'desc'), limit(100));
+    const unsubKarungMasuk = onSnapshot(qKarungMasuk, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as KarungMasuk));
+      setKarungMasuk(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'karungMasuk'));
+
+    return () => {
+      unsubKarungMaster();
+      unsubKarungMasuk();
     };
   }, [currentUser]);
 
@@ -583,6 +629,64 @@ export default function App() {
     }
   };
 
+  const addKarungMaster = async (name: string) => {
+    try {
+      const id = `k-${Date.now()}`;
+      await setDoc(doc(db, 'karungMaster', id), { id, name });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'karungMaster');
+    }
+  };
+
+  const deleteKarungMaster = async (id: string) => {
+    if (!window.confirm('Hapus jenis karung ini?')) return;
+    try {
+      await deleteDoc(doc(db, 'karungMaster', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `karungMaster/${id}`);
+    }
+  };
+
+  const addKarungMasuk = async (karungData: Omit<KarungMasuk, 'id' | 'createdAt'>) => {
+    try {
+      const id = `km-${Date.now()}`;
+      const newEntry: KarungMasuk = {
+        id,
+        ...karungData,
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'karungMasuk', id), newEntry);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'karungMasuk');
+    }
+  };
+
+  const deleteKarungMasuk = async (id: string) => {
+    if (!window.confirm('Hapus laporan karung masuk ini?')) return;
+    try {
+      await deleteDoc(doc(db, 'karungMasuk', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `karungMasuk/${id}`);
+    }
+  };
+
+  const exportKarungToExcel = () => {
+    const data = karungMasuk.flatMap(report => 
+      report.items.map(item => ({
+        Tanggal: report.tanggal,
+        PIC: report.pic,
+        Jenis_Karung: item.name,
+        Jumlah: item.jumlah,
+        Waktu_Input: new Date(report.createdAt).toLocaleString()
+      }))
+    );
+    
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Laporan Karung Masuk");
+    XLSX.writeFile(wb, `Report_Karung_Masuk_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const getFilteredJobs = () => {
     let jobs = dailyJobs;
     
@@ -676,6 +780,8 @@ export default function App() {
               {view === 'MasterJobList' && 'Daftar Tugas'}
               {view === 'UserManagement' && 'Manajemen Staff'}
               {view === 'Reports' && 'Statistik & Laporan'}
+              {view === 'KarungMasuk' && 'Pendataan Karung'}
+              {view === 'KarungMaster' && 'List Jenis Karung'}
             </h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
@@ -746,13 +852,27 @@ export default function App() {
                     label="Laporan"
                     color="bg-rose-50"
                   />
+                  <MenuCard 
+                    onClick={() => handleSetView('KarungMasuk')}
+                    icon={<Archive className="text-blue-600" />}
+                    label="Karung Masuk"
+                    color="bg-blue-50"
+                  />
                   {currentUser?.role === 'Admin' && (
-                    <MenuCard 
-                      onClick={() => handleSetView('UserManagement')}
-                      icon={<Users className="text-emerald-600" />}
-                      label="Staff"
-                      color="bg-emerald-50"
-                    />
+                    <>
+                      <MenuCard 
+                        onClick={() => handleSetView('KarungMaster')}
+                        icon={<ClipboardList className="text-purple-600" />}
+                        label="List Karung"
+                        color="bg-purple-50"
+                      />
+                      <MenuCard 
+                        onClick={() => handleSetView('UserManagement')}
+                        icon={<Users className="text-emerald-600" />}
+                        label="Staff"
+                        color="bg-emerald-50"
+                      />
+                    </>
                   )}
                 </div>
 
@@ -1186,6 +1306,39 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+          {view === 'KarungMasuk' && (
+            <motion.div
+              key="karung-masuk"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <KarungMasukView 
+                karungMaster={karungMaster}
+                karungMasuk={karungMasuk}
+                onSubmit={addKarungMasuk}
+                onDelete={deleteKarungMasuk}
+                currentUser={currentUser!}
+                onExport={exportKarungToExcel}
+              />
+            </motion.div>
+          )}
+
+          {view === 'KarungMaster' && currentUser?.role === 'Admin' && (
+            <motion.div
+              key="karung-master"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <KarungMasterView 
+                karungMaster={karungMaster}
+                onAdd={addKarungMaster}
+                onDelete={deleteKarungMaster}
+              />
+            </motion.div>
+          )}
           </AnimatePresence>
         </div>
       </main>
@@ -1587,6 +1740,8 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
       };
       
       await onSubmit(job);
+      setIsSubmitting(false);
+      setUploadStatus('');
       setShowSuccess(true);
       setTimeout(() => {
         onCancel();
@@ -1594,7 +1749,9 @@ function DailyForm({ masterJobs, onSubmit, onCancel, initialData }: { masterJobs
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       alert(`Gagal menyimpan laporan: ${errorMessage}`);
+    } finally {
       setIsSubmitting(false);
+      setUploadStatus('');
     }
   };
 
@@ -1843,6 +2000,7 @@ function FinishJobModal({ job, onClose, onFinish }: { job: DailyJob, onClose: ()
       alert(`Gagal menyelesaikan laporan: ${errorMessage}. Pastikan koneksi internet stabil.`);
     } finally {
       setIsSubmitting(false);
+      setUploadStatus('');
     }
   };
 
@@ -2195,6 +2353,251 @@ function ReportsView({
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KarungMasterView({ 
+  karungMaster, 
+  onAdd, 
+  onDelete 
+}: { 
+  karungMaster: KarungMaster[], 
+  onAdd: (name: string) => Promise<void>, 
+  onDelete: (id: string) => Promise<void> 
+}) {
+  const [newName, setNewName] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    onAdd(newName.trim());
+    setNewName('');
+  };
+
+  return (
+    <div className="space-y-6">
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-[2.5rem] border border-indigo-100 shadow-xl shadow-indigo-50/50 space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Jenis Karung Baru</label>
+          <input 
+            type="text" 
+            placeholder="Contoh: Karung Plastik 50kg"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-[10px] font-bold uppercase focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+          />
+        </div>
+        <button 
+          type="submit"
+          className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl text-[11px] uppercase shadow-lg shadow-indigo-100"
+        >
+          Tambah Jenis Karung
+        </button>
+      </form>
+
+      <div className="space-y-4">
+        <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">List Karung</h3>
+        <div className="grid grid-cols-1 gap-3">
+          {karungMaster.map(k => (
+            <div key={k.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+              <span className="text-xs font-bold uppercase text-slate-700">{k.name}</span>
+              <button 
+                onClick={() => onDelete(k.id)}
+                className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+          {karungMaster.length === 0 && <p className="text-center text-[10px] text-slate-400 font-bold uppercase p-8 bg-white rounded-2xl border border-dashed border-slate-200">Belum ada data</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KarungMasukView({ 
+  karungMaster, 
+  karungMasuk, 
+  onSubmit, 
+  onDelete,
+  currentUser,
+  onExport
+}: { 
+  karungMaster: KarungMaster[], 
+  karungMasuk: KarungMasuk[], 
+  onSubmit: (data: Omit<KarungMasuk, 'id' | 'createdAt'>) => Promise<void>, 
+  onDelete: (id: string) => Promise<void>,
+  currentUser: UserAccount,
+  onExport: () => void
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [tanggal, setTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [items, setItems] = useState<KarungMasukItem[]>([]);
+  
+  const [currentKarungId, setCurrentKarungId] = useState('');
+  const [currentJumlah, setCurrentJumlah] = useState('');
+
+  const addItem = () => {
+    if (!currentKarungId || !currentJumlah) return;
+    const karung = karungMaster.find(k => k.id === currentKarungId);
+    if (!karung) return;
+
+    setItems([...items, { karungId: karung.id, name: karung.name, jumlah: Number(currentJumlah) }]);
+    setCurrentKarungId('');
+    setCurrentJumlah('');
+  };
+
+  const removeItem = (index: number) => {
+    setItems(items.filter((_, i) => i !== index));
+  };
+
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (items.length === 0) return alert('Tambahkan setidaknya satu item');
+    
+    await onSubmit({
+      tanggal,
+      pic: currentUser.name,
+      items
+    });
+
+    setIsAdding(false);
+    setItems([]);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-black text-slate-900">Karung Masuk</h2>
+        <div className="flex gap-2">
+          <button 
+            onClick={onExport}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold transition-all hover:bg-emerald-700 active:scale-95 shadow-lg shadow-emerald-100 uppercase"
+          >
+            <Download size={16} />
+            Excel
+          </button>
+          <button 
+            onClick={() => setIsAdding(!isAdding)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold transition-all active:scale-95 shadow-lg shadow-indigo-100 uppercase ${
+              isAdding ? 'bg-slate-200 text-slate-600' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+            }`}
+          >
+            {isAdding ? 'Batal' : <><Plus size={16} /> Tambah</>}
+          </button>
+        </div>
+      </div>
+
+      {isAdding && (
+        <motion.form 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          onSubmit={handleFormSubmit}
+          className="bg-white p-6 rounded-[2.5rem] border border-indigo-100 shadow-xl shadow-indigo-50/50 space-y-4 border-2"
+        >
+          <div className="space-y-1.5">
+            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Tanggal</label>
+            <input 
+              type="date" 
+              value={tanggal}
+              onChange={e => setTanggal(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-[10px] font-bold focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+            />
+          </div>
+
+          <div className="p-4 bg-slate-50 rounded-2xl space-y-4">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Input Item Karung</p>
+            <div className="grid grid-cols-1 gap-3">
+              <select 
+                value={currentKarungId}
+                onChange={e => setCurrentKarungId(e.target.value)}
+                className="w-full bg-white border border-slate-100 rounded-xl p-3 text-[10px] font-bold uppercase focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+              >
+                <option value="">Pilih Jenis Karung</option>
+                {karungMaster.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <input 
+                  type="number" 
+                  placeholder="Jumlah"
+                  value={currentJumlah}
+                  onChange={e => setCurrentJumlah(e.target.value)}
+                  className="flex-1 bg-white border border-slate-100 rounded-xl p-3 text-[10px] font-bold focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                />
+                <button 
+                  type="button"
+                  onClick={addItem}
+                  className="bg-slate-900 text-white px-6 rounded-xl text-[10px] font-black uppercase active:scale-95 transition-all"
+                >
+                  Tambah
+                </button>
+              </div>
+            </div>
+
+            {items.length > 0 && (
+              <div className="pt-2 space-y-2">
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Daftar Input:</p>
+                {items.map((item, idx) => (
+                  <div key={idx} className="bg-white px-3 py-2 rounded-xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-black text-slate-900 uppercase">{item.name}</span>
+                      <span className="text-[10px] text-indigo-600 font-bold ml-2">x {item.jumlah}</span>
+                    </div>
+                    <button type="button" onClick={() => removeItem(idx)} className="text-red-400 p-1 hover:bg-red-50 rounded-lg">
+                      <Trash size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button 
+            type="submit"
+            className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl text-[11px] uppercase shadow-lg shadow-indigo-100 active:scale-95 transition-all"
+          >
+            Simpan Laporan Karung
+          </button>
+        </motion.form>
+      )}
+
+      <div className="space-y-4">
+        <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Histori Karung Masuk</h3>
+        <div className="space-y-4">
+          {karungMasuk.map(report => (
+            <div key={report.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+               <div className="p-5">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{report.tanggal}</span>
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">PIC: {report.pic}</h4>
+                    </div>
+                    {currentUser.role === 'Admin' && (
+                      <button onClick={() => onDelete(report.id)} className="text-slate-200 hover:text-red-500 p-2 rounded-xl transition-all">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2 pt-2 border-t border-slate-50">
+                    {report.items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-slate-50 px-3 py-2 rounded-xl">
+                        <span className="text-[10px] font-bold text-slate-700 uppercase">{item.name}</span>
+                        <span className="text-[11px] font-black text-slate-900">{item.jumlah} Pcs</span>
+                      </div>
+                    ))}
+                  </div>
+               </div>
+            </div>
+          ))}
+          {karungMasuk.length === 0 && (
+            <div className="p-12 text-center text-slate-400 text-[10px] font-extrabold uppercase tracking-widest bg-white border border-dashed border-slate-200 rounded-[2.5rem]">
+              Belum ada data laporan
+            </div>
+          )}
         </div>
       </div>
     </div>

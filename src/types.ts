@@ -39,4 +39,23 @@ export interface UserAccount {
   email?: string; // New field for Firebase Auth
 }
 
-export type AppView = 'Home' | 'DailyJobForm' | 'DailyJobList' | 'MasterJobList' | 'UserManagement' | 'Login' | 'Reports';
+export type AppView = 'Home' | 'DailyJobForm' | 'DailyJobList' | 'MasterJobList' | 'UserManagement' | 'Login' | 'Reports' | 'KarungMasuk' | 'KarungMaster';
+
+export interface KarungMaster {
+  id: string;
+  name: string;
+}
+
+export interface KarungMasukItem {
+  karungId: string;
+  name: string;
+  jumlah: number;
+}
+
+export interface KarungMasuk {
+  id: string;
+  tanggal: string;
+  pic: string;
+  items: KarungMasukItem[];
+  createdAt: string;
+}
