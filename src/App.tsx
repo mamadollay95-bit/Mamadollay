@@ -2102,10 +2102,21 @@ function ReportsView({
 }) {
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  // Filter jobs based on date range
+  const filteredJobs = dailyJobs.filter(job => {
+    if (!startDate && !endDate) return true;
+    const jobDate = job.tanggal; // Assuming yyyy-mm-dd
+    if (startDate && jobDate < startDate) return false;
+    if (endDate && jobDate > endDate) return false;
+    return true;
+  });
 
   const exportPhotosToZip = async () => {
-    const jobsWithPhotos = dailyJobs.filter(j => j.foto && j.foto.startsWith('http'));
-    if (jobsWithPhotos.length === 0) return alert('Tidak ada foto untuk di-backup');
+    const jobsWithPhotos = filteredJobs.filter(j => j.foto && j.foto.startsWith('http'));
+    if (jobsWithPhotos.length === 0) return alert('Tidak ada foto untuk di-backup di rentang tanggal ini');
 
     setIsZipping(true);
     setZipProgress(0);
@@ -2139,7 +2150,7 @@ function ReportsView({
   };
 
   const exportToCSV = () => {
-    if (dailyJobs.length === 0) return alert('Tidak ada data untuk di-export');
+    if (filteredJobs.length === 0) return alert('Tidak ada data untuk di-export di rentang tanggal ini');
     
     // Proper CSV escaping
     const escapeCSV = (str: any) => {
@@ -2149,7 +2160,7 @@ function ReportsView({
     };
 
     const headers = ['ID', 'Tanggal', 'PIC', 'Lokasi', 'Shift', 'Kegiatan', 'Waktu Mulai', 'Waktu Selesai', 'Durasi', 'Keterangan'];
-    const rows = dailyJobs.map(job => [
+    const rows = filteredJobs.map(job => [
       job.id,
       job.tanggal,
       job.pic,
@@ -2178,13 +2189,13 @@ function ReportsView({
     document.body.removeChild(link);
   };
 
-  const totalJobs = dailyJobs.length;
-  const jobsByShift = dailyJobs.reduce((acc: Record<string, number>, job) => {
+  const totalJobs = filteredJobs.length;
+  const jobsByShift = filteredJobs.reduce((acc: Record<string, number>, job) => {
     acc[job.shift] = (acc[job.shift] || 0) + 1;
     return acc;
   }, {});
 
-  const jobsByLocation = dailyJobs.reduce((acc: Record<string, number>, job) => {
+  const jobsByLocation = filteredJobs.reduce((acc: Record<string, number>, job) => {
     acc[job.lokasi] = (acc[job.lokasi] || 0) + 1;
     return acc;
   }, {});
@@ -2192,23 +2203,64 @@ function ReportsView({
   return (
     <div className="space-y-8 pb-12">
       {currentUser.role === 'Admin' && (
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-indigo-50 flex items-center justify-center rounded-xl text-indigo-600">
-              <Users size={18} />
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-6">
+          {/* Staff Filter */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-indigo-50 flex items-center justify-center rounded-xl text-indigo-600">
+                <Users size={18} />
+              </div>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Monitor Petugas</h3>
             </div>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Monitor Petugas</h3>
+            <select 
+              value={staffFilter}
+              onChange={(e) => setStaffFilter(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 text-[11px] font-bold uppercase focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-all appearance-none shadow-inner"
+            >
+              <option value="all">SEMUA PETUGAS</option>
+              {users.filter(u => u.role === 'Staff').map(u => (
+                <option key={u.id} value={u.name}>{u.name.toUpperCase()}</option>
+              ))}
+            </select>
           </div>
-          <select 
-            value={staffFilter}
-            onChange={(e) => setStaffFilter(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 text-[11px] font-bold uppercase focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-all appearance-none shadow-inner"
-          >
-            <option value="all">SEMUA PETUGAS</option>
-            {users.filter(u => u.role === 'Staff').map(u => (
-              <option key={u.id} value={u.name}>{u.name.toUpperCase()}</option>
-            ))}
-          </select>
+
+          {/* Date Filter */}
+          <div className="space-y-4 pt-4 border-t border-slate-50">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-amber-50 flex items-center justify-center rounded-xl text-amber-600">
+                <Calendar size={18} />
+              </div>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-900">Filter Rentang Tanggal</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Dari Tanggal</label>
+                <input 
+                  type="date" 
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 text-[10px] font-bold focus:outline-none focus:ring-2 focus:ring-amber-100 transition-all shadow-inner"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Sampai Tanggal</label>
+                <input 
+                  type="date" 
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 text-[10px] font-bold focus:outline-none focus:ring-2 focus:ring-amber-100 transition-all shadow-inner"
+                />
+              </div>
+            </div>
+            {(startDate || endDate) && (
+              <button 
+                onClick={() => { setStartDate(''); setEndDate(''); }}
+                className="text-[9px] font-black text-indigo-600 uppercase tracking-wider hover:underline"
+              >
+                Reset Filter Tanggal
+              </button>
+            )}
+          </div>
         </div>
       )}
 
